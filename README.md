@@ -1,31 +1,36 @@
 # FinTech Core Banking Ledger 🏦
 
-A professional-grade Banking Ledger System implemented in pure MySQL, demonstrating **Double-Entry Bookkeeping**, **ACID Transactions**, and **Financial Auditing**.
+A professional-grade Banking Ledger System implemented in pure MySQL, demonstrating **Double-Entry Bookkeeping**, **ACID Transactions**, **Forex**, **Automation**, and **Enterprise Security**.
 
 ## 🚀 Key Features
 
--   **Double-Entry Ledger**: Every transaction makes equal Debit/Credit entries. Zero-sum integrity is enforced.
--   **ACID Compliance**: Uses `START TRANSACTION`, `COMMIT`, `ROLLBACK` and Row-Level Locking (`FOR UPDATE`) to handle concurrency and prevent race conditions.
--   **Audit Trails**: Immutable logs track every change to User/Account data.
--   **Fraud Prevention**: Triggers prevent negative balances and flag suspicious high-value transfers.
--   **RBAC**: Role-Based Access Control schema (Admin, Auditor, Customer).
+*   **Double-Entry Ledger**: Every transaction makes equal Debit/Credit entries. Zero-sum integrity is enforced.
+*   **ACID Compliance**: Uses `START TRANSACTION`, `COMMIT`, `ROLLBACK` and Row-Level Locking (`FOR UPDATE`).
+*   **Automated Banking**: Daily Interest Scheduler (5% APY) using MySQL Events.
+*   **Multi-Currency Engine**: Cross-currency transfers (e.g., USD -> EUR) with real-time exchange rates.
+*   **Role-Based Security**: Strict separation of duties between `teller_bot` (Exec) and `auditor_bot` (Read-only).
+*   **Fraud Prevention**: Negative balance protection and high-value alerts.
 
 ## 📂 Project Structure
 
 ```
 FinTech_Banking_System/
 ├── schema/
-│   └── 01_tables.sql           # Core Tables (Users, Accounts, Ledger)
+│   ├── 01_tables.sql           # Core Tables (Users, Accounts, Ledger)
+│   └── 02_currencies.sql       # Forex Exchange Rates
 ├── procedures/
-│   ├── 01_transactions.sql     # Transfer & Deposit Logic (The "Brain")
-│   └── 02_accounts.sql         # Account Management
+│   ├── 01_transactions.sql     # Transfer & Deposit Logic (ACID)
+│   ├── 02_accounts.sql         # Account Management
+│   └── 03_forex_transfer.sql   # Cross-Currency Transfer Logic
+├── events/
+│   └── 01_daily_interest.sql   # Daily 5% APY Automation
+├── security/
+│   └── 01_roles.sql            # RBAC (Teller/Auditor)
 ├── triggers/
-│   ├── 01_audit_logging.sql    # System Audit Logs
+│   ├── 01_audit_logging.sql    # Immutable Audit Trails
 │   └── 02_fraud_checks.sql     # Business Rules
 ├── views/
 │   └── 01_financial_reports.sql # Balance Sheet & Statements
-├── data/
-│   └── 01_seed_data.sql        # Simulation Data
 └── scripts/
     └── setup.bat               # One-click installer
 ```
@@ -41,34 +46,30 @@ FinTech_Banking_System/
     ```
     *Enter your MySQL root password when prompted.*
 
-## 💡 Core Concepts Demonstrated
+## 💡 Advanced Concepts Demonstrated
 
-### 1. The Double-Entry Engine (`schema/01_tables.sql`)
-Unlike simple apps that just update a `balance` column, this system records the **flow of money**.
--   **Transfer $100 from Alice to Bob:**
-    -   Entry 1: Debit Alice (-100)
-    -   Entry 2: Credit Bob (+100)
-    -   *Net System Change: 0*
-
-### 2. Atomic Transfers (`procedures/01_transactions.sql`)
-The `sp_perform_transfer` procedure wraps logic in a transaction block. If *any* step fails (e.g., insert fails, insufficient funds), the entire operation rolls back.
-
+### 1. Multi-Currency Transfers (`procedures/03_forex_transfer.sql`)
+Performs real-time conversion during the atomic transaction transaction block.
 ```sql
-START TRANSACTION;
--- Lock rows
-SELECT ... FOR UPDATE;
--- Insert Entries
-INSERT INTO transaction_entries...
--- Commit
-COMMIT;
+-- Logic: Amount_Target = Amount_Source * (Rate_Target / Rate_Source)
+-- Entry 1: Debit Sender (USD 100)
+-- Entry 2: Credit Receiver (INR 8350)
 ```
 
-### 3. Financial Integrity (`views/01_financial_reports.sql`)
-The `vw_ledger_integrity_check` view constantly monitors the system. It should always return **0 rows**. If it returns data, the mathematical integrity of the ledger is broken.
+### 2. Event Scheduling (`events/01_daily_interest.sql`)
+Simulates "End of Day" batch processing.
+-   Iterates through all Savings Accounts using a Cursor.
+-   Calculate daily interest: `Balance * (0.05 / 365)`.
+-   Credits account & logs to Ledger automatically.
+
+### 3. Enterprise Security (`security/01_roles.sql`)
+Instead of using `root`, creates specific service users:
+-   **teller_bot**: Can EXECUTE `sp_perform_transfer` but cannot READ `audit_logs`.
+-   **auditor_bot**: Can READ everything for compliance but cannot EXECUTE changes.
 
 ## 🧪 Testing
 
-run the seed data script to populate:
+run the simulation:
 ```sql
 SOURCE data/01_seed_data.sql;
 ```
