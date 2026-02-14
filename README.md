@@ -4,6 +4,7 @@
 ![AI](https://img.shields.io/badge/AI-Isolation_Forest-orange?style=flat)
 ![Python](https://img.shields.io/badge/Worker-Python_3.9+-3776AB?style=flat&logo=python&logoColor=white)
 ![GPT](https://img.shields.io/badge/NL--to--SQL-LedgerGPT-purple?style=flat)
+![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B?style=flat&logo=streamlit&logoColor=white)
 
 A professional-grade Banking Ledger System in **MySQL** with **AI Fraud Detection** and a **Natural Language SQL Auditor** (LedgerGPT).
 
@@ -15,6 +16,7 @@ A professional-grade Banking Ledger System in **MySQL** with **AI Fraud Detectio
 -   **Rule-Based Fraud Prevention**: Triggers prevent negative balances and flag high-value transfers.
 -   **🤖 AI Anomaly Detection**: An Isolation Forest model scores every transaction for fraud risk.
 -   **💬 LedgerGPT**: Ask questions in plain English — it generates and runs SQL for you.
+-   **📊 Live Dashboard**: Streamlit-powered visual monitoring with Plotly charts.
 -   **RBAC**: Role-Based Access Control (Admin, Auditor, Customer).
 
 ## 🧠 AI Anomaly Detection
@@ -80,6 +82,10 @@ FinTech_Banking_System/
 │   ├── query_engine.py         # NL-to-SQL Engine (GPT + Templates)
 │   ├── schema_context.py       # DB Schema for LLM Prompt
 │   ├── config.py               # Config
+│   └── requirements.txt        # Dependencies
+├── dashboard/                   # 📊 Visual Monitoring Dashboard
+│   ├── app.py                  # Streamlit App (Main Entry Point)
+│   ├── db.py                   # Database Query Helpers
 │   └── requirements.txt        # Dependencies
 ├── data/
 │   └── 01_seed_data.sql        # Simulation Data
@@ -148,6 +154,14 @@ ledger> show all transactions for alice
 ledger> find transfers over $500
 ledger> show flagged transactions
 ```
+
+### Step 7: Run the Dashboard
+```powershell
+cd dashboard
+pip install -r requirements.txt
+streamlit run app.py
+```
+Opens at `http://localhost:8501` with 6 interactive pages.
 
 ## 💡 Core Concepts
 
