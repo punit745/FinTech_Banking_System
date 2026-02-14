@@ -3,8 +3,9 @@
 ![MySQL](https://img.shields.io/badge/Database-MySQL_8.0-4479A1?style=flat&logo=mysql&logoColor=white)
 ![AI](https://img.shields.io/badge/AI-Isolation_Forest-orange?style=flat)
 ![Python](https://img.shields.io/badge/Worker-Python_3.9+-3776AB?style=flat&logo=python&logoColor=white)
+![GPT](https://img.shields.io/badge/NL--to--SQL-LedgerGPT-purple?style=flat)
 
-A professional-grade Banking Ledger System implemented in **MySQL** with an **AI-Powered Fraud Detection** worker that monitors transactions in real-time using Machine Learning.
+A professional-grade Banking Ledger System in **MySQL** with **AI Fraud Detection** and a **Natural Language SQL Auditor** (LedgerGPT).
 
 ## 🚀 Key Features
 
@@ -12,7 +13,8 @@ A professional-grade Banking Ledger System implemented in **MySQL** with an **AI
 -   **ACID Compliance**: Uses `START TRANSACTION`, `COMMIT`, `ROLLBACK` and Row-Level Locking (`FOR UPDATE`).
 -   **Audit Trails**: Immutable JSON logs track every change to User/Account data.
 -   **Rule-Based Fraud Prevention**: Triggers prevent negative balances and flag high-value transfers.
--   **🤖 AI Anomaly Detection (NEW)**: An Isolation Forest model scores every transaction for fraud risk.
+-   **🤖 AI Anomaly Detection**: An Isolation Forest model scores every transaction for fraud risk.
+-   **💬 LedgerGPT**: Ask questions in plain English — it generates and runs SQL for you.
 -   **RBAC**: Role-Based Access Control (Admin, Auditor, Customer).
 
 ## 🧠 AI Anomaly Detection
@@ -36,6 +38,23 @@ The `ai_worker/` is a Python background process that **learns normal banking beh
 | 0.5 – 0.8 | 🟡 SUSPICIOUS | Flag for manual review |
 | 0.8 – 1.0 | 🔴 CRITICAL | Block and alert |
 
+## 💬 LedgerGPT — Natural Language Auditor
+
+Ask questions in plain English and get SQL results instantly.
+
+| You Type | LedgerGPT Runs |
+|:---------|:---------------|
+| "Show all transactions for alice" | `SELECT ... FROM vw_customer_statement WHERE username = 'alice'` |
+| "Find transfers over $500" | `SELECT ... WHERE ABS(te.amount) > 500` |
+| "Show flagged transactions" | `SELECT ... FROM vw_flagged_transactions` |
+| "Check ledger integrity" | `SELECT ... FROM vw_ledger_integrity_check` |
+
+**Dual Mode:**
+-   🟢 **Template Mode** (default, offline) — 15+ predefined query patterns.
+-   🔵 **GPT Mode** (optional) — Set `OPENAI_API_KEY` to ask *any* question.
+
+**Safety:** Only `SELECT` queries are allowed. All writes are blocked.
+
 ## 📂 Project Structure
 
 ```
@@ -53,9 +72,15 @@ FinTech_Banking_System/
 │   └── 01_financial_reports.sql # Balance Sheet & Statements
 ├── ai_worker/                   # 🤖 AI Anomaly Detection
 │   ├── ai_engine.py            # Isolation Forest Model
-│   ├── worker.py               # Polling Loop (Main Entry Point)
-│   ├── config.py               # Database & Threshold Config
-│   └── requirements.txt        # Python Dependencies
+│   ├── worker.py               # Polling Loop
+│   ├── config.py               # Config
+│   └── requirements.txt        # Dependencies
+├── ledger_gpt/                  # 💬 Natural Language Auditor
+│   ├── app.py                  # Interactive CLI (Main Entry Point)
+│   ├── query_engine.py         # NL-to-SQL Engine (GPT + Templates)
+│   ├── schema_context.py       # DB Schema for LLM Prompt
+│   ├── config.py               # Config
+│   └── requirements.txt        # Dependencies
 ├── data/
 │   └── 01_seed_data.sql        # Simulation Data
 └── scripts/
@@ -84,8 +109,14 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Step 3: Configure Database Connection
-Edit `ai_worker/config.py` or create a `.env` file:
+### Step 3: LedgerGPT Setup
+```powershell
+cd ledger_gpt
+pip install -r requirements.txt
+```
+
+### Step 4: Configure Database Connection
+Edit `ai_worker/config.py` and `ledger_gpt/config.py`, or create a `.env` file in each:
 ```env
 DB_HOST=localhost
 DB_PORT=3306
@@ -94,7 +125,7 @@ DB_PASSWORD=your_password
 DB_NAME=fintech_banking
 ```
 
-### Step 4: Run the AI Worker
+### Step 5: Run the AI Worker
 ```powershell
 cd ai_worker
 python worker.py
@@ -103,12 +134,19 @@ You should see output like:
 ```
 🟢 TXN #    1 |    $1,000.00 | Score: 0.1200 |       SAFE
 🟢 TXN #    2 |      $200.00 | Score: 0.0800 |       SAFE
-� TXN #    5 |   $15,000.00 | Score: 0.9200 |   CRITICAL
+🔴 TXN #    5 |   $15,000.00 | Score: 0.9200 |   CRITICAL
 ```
 
-### Step 5: Query Flagged Transactions
-```sql
-SELECT * FROM vw_flagged_transactions;
+### Step 6: Run LedgerGPT
+```powershell
+cd ledger_gpt
+python app.py
+```
+Then ask questions like:
+```
+ledger> show all transactions for alice
+ledger> find transfers over $500
+ledger> show flagged transactions
 ```
 
 ## 💡 Core Concepts
