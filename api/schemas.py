@@ -75,6 +75,11 @@ class PinUpdate(BaseModel):
     new_pin: str = Field(..., min_length=4, max_length=6, pattern=r"^\d{4,6}$")
 
 
+class PasswordChange(BaseModel):
+    old_password: str = Field(..., min_length=6)
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+
 # ── Account Schemas ────────────────────────────────────────
 
 class AccountCreate(BaseModel):

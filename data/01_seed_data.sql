@@ -3,41 +3,39 @@
 -- ================================================================
 
 -- 1. Create Users
-INSERT INTO users (username, password_hash, email, full_name, date_of_birth, kyc_status, role) VALUES 
-('alice', 'hashed_pw_1', 'alice@example.com', 'Alice Wonderland', '1990-01-01', 'verified', 'customer'),
-('bob', 'hashed_pw_2', 'bob@builder.com', 'Bob The Builder', '1985-05-20', 'verified', 'customer'),
-('charlie', 'hashed_pw_3', 'charlie@chaplin.com', 'Charlie Chaplin', '1992-12-10', 'verified', 'customer'),
-('admin', 'admin_pw', 'admin@fintech.com', 'System Admin', '1980-01-01', 'verified', 'admin');
+INSERT INTO users (username, password_hash, email, full_name, date_of_birth, phone_number, kyc_status, role) VALUES 
+('arjun', 'hashed_pw_1', 'arjun@example.com', 'Arjun Sharma', '1995-03-15', '+91 98765 43210', 'verified', 'customer'),
+('priya', 'hashed_pw_2', 'priya@example.com', 'Priya Patel', '1992-08-22', '+91 87654 32109', 'verified', 'customer'),
+('rahul', 'hashed_pw_3', 'rahul@example.com', 'Rahul Verma', '1990-11-05', '+91 76543 21098', 'verified', 'customer'),
+('admin', 'admin_pw', 'admin@fintech.com', 'System Admin', '1985-01-01', NULL, 'verified', 'admin');
 
 -- 2. Create Accounts (Using the Procedures ensures unique numbers)
--- Note: In a raw script we can't capture OUT params easily in MySQL 5.7 batch, 
--- so we'll just insert directly or use CALLs if we don't need the ID immediately.
 
--- Alice Accounts
-CALL sp_create_account(1, 'savings', 'USD', @alice_sav_id, @alice_sav_num);
-CALL sp_create_account(1, 'checking', 'USD', @alice_chk_id, @alice_chk_num);
+-- Arjun Accounts
+CALL sp_create_account(1, 'savings', 'INR', @arjun_sav_id, @arjun_sav_num);
+CALL sp_create_account(1, 'checking', 'INR', @arjun_chk_id, @arjun_chk_num);
 
--- Bob Accounts
-CALL sp_create_account(2, 'savings', 'USD', @bob_sav_id, @bob_sav_num);
+-- Priya Accounts
+CALL sp_create_account(2, 'savings', 'INR', @priya_sav_id, @priya_sav_num);
 
--- Charlie Accounts
-CALL sp_create_account(3, 'wallet', 'USD', @charlie_wal_id, @charlie_wal_num);
+-- Rahul Accounts
+CALL sp_create_account(3, 'wallet', 'INR', @rahul_wal_id, @rahul_wal_num);
 
 -- 3. Deposit Initial Funds (Seed Capital)
--- Alice Deposits $1000
-CALL sp_deposit_cash(@alice_sav_id, 1000.00, 'Initial Deposit', @txn1);
+-- Arjun Deposits ₹50,000
+CALL sp_deposit_cash(@arjun_sav_id, 50000.00, 'Salary Deposit', @txn1);
 
--- Bob Deposits $500
-CALL sp_deposit_cash(@bob_sav_id, 500.00, 'Salary Deposit', @txn2);
+-- Priya Deposits ₹25,000
+CALL sp_deposit_cash(@priya_sav_id, 25000.00, 'Freelance Payment', @txn2);
 
 -- 4. Perform Transfers
--- Alice sends $200 to Bob
-CALL sp_perform_transfer(@alice_sav_id, @bob_sav_id, 200.00, 1, 'Dinner Split', @txn3, @status3);
+-- Arjun sends ₹5,000 to Priya
+CALL sp_perform_transfer(@arjun_sav_id, @priya_sav_id, 5000.00, 1, 'Rent Split', @txn3, @status3);
 
--- Bob sends $50 to Charlie
-CALL sp_perform_transfer(@bob_sav_id, @charlie_wal_id, 50.00, 2, 'Gift', @txn4, @status4);
+-- Priya sends ₹2,000 to Rahul
+CALL sp_perform_transfer(@priya_sav_id, @rahul_wal_id, 2000.00, 2, 'Birthday Gift', @txn4, @status4);
 
--- Alice moves $100 from Savings to Checking
-CALL sp_perform_transfer(@alice_sav_id, @alice_chk_id, 100.00, 1, 'Self Transfer', @txn5, @status5);
+-- Arjun moves ₹10,000 from Savings to Checking
+CALL sp_perform_transfer(@arjun_sav_id, @arjun_chk_id, 10000.00, 1, 'Self Transfer', @txn5, @status5);
 
 SELECT 'Seed Data Loaded Successfully' AS status;
