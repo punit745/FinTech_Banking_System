@@ -19,6 +19,37 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- ═══════════════════════════════════════════════════ -->
+    <!--  CONFIRMATION MODAL                                -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal-card">
+            <h3 id="confirmTitle">Confirm Transaction</h3>
+            <p class="modal-subtitle" id="confirmSubtitle">Review the details below before confirming.</p>
+            <div class="confirm-details" id="confirmDetails"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('confirmModal')">Cancel</button>
+                <button class="btn btn-primary" id="confirmActionBtn" onclick="executePendingAction()">
+                    <span class="btn-spinner"></span>
+                    <span class="btn-text">Confirm</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--  RECEIPT MODAL                                     -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <div class="modal-overlay" id="receiptModal">
+        <div class="modal-card receipt-card">
+            <div class="receipt-check">✓</div>
+            <div class="receipt-amount" id="receiptAmount">$0.00</div>
+            <div class="receipt-label">Transaction Successful</div>
+            <div class="receipt-details" id="receiptDetails"></div>
+            <button class="btn btn-primary" style="width:100%;" onclick="closeModal('receiptModal')">Done</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════ -->
     <!--  AUTH PAGE (Login / Register)                      -->
     <!-- ═══════════════════════════════════════════════════ -->
     <div id="authPage" class="auth-page">
@@ -49,7 +80,8 @@
                     </div>
                     <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 8px;"
                         id="loginBtn">
-                        Sign In
+                        <span class="btn-spinner"></span>
+                        <span class="btn-text">Sign In</span>
                     </button>
                 </form>
 
@@ -83,7 +115,8 @@
                     </div>
                     <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 8px;"
                         id="registerBtn">
-                        Create Account
+                        <span class="btn-spinner"></span>
+                        <span class="btn-text">Create Account</span>
                     </button>
                 </form>
             </div>
@@ -107,6 +140,8 @@
                     <h1>FinTech Banking</h1>
                     <div class="version">v2.0</div>
                 </div>
+                <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()"
+                    title="Toggle theme">🌙</button>
             </div>
 
             <nav class="sidebar-nav">
@@ -136,6 +171,11 @@
             </nav>
 
             <div class="sidebar-footer">
+                <div class="session-timer" id="sessionTimer">
+                    <span class="timer-icon">🔒</span>
+                    <span>Session:</span>
+                    <span class="timer-value" id="sessionTimerValue">--:--</span>
+                </div>
                 <div class="user-card">
                     <div class="user-avatar" id="userAvatarInitials">U</div>
                     <div class="user-info">
@@ -153,8 +193,25 @@
             <!-- ── DASHBOARD PAGE ──────────────────────── -->
             <section id="page-dashboard" class="page-section active">
                 <div class="page-header">
-                    <h2>Dashboard</h2>
-                    <p>Welcome back! Here's your financial overview.</p>
+                    <div>
+                        <h2 id="dashboardGreeting">Dashboard</h2>
+                        <p>Welcome back! Here's your financial overview.</p>
+                    </div>
+                    <div style="position:relative;">
+                        <button class="notification-bell" id="notifBell" onclick="toggleNotifications()">
+                            🔔
+                            <span class="notif-count" id="notifCount"></span>
+                        </button>
+                        <div class="notification-panel" id="notifPanel">
+                            <div class="notif-header">
+                                <span>Notifications</span>
+                                <button onclick="clearNotifications()">Clear all</button>
+                            </div>
+                            <div class="notif-list" id="notifList">
+                                <div class="notif-empty">No notifications yet</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="kpi-grid" id="dashboardKPIs">
@@ -191,6 +248,43 @@
                     </div>
                     <div class="card">
                         <div class="card-header">
+                            <span class="card-title">Spending Breakdown</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="spendingDoughnut"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid-2" style="margin-top: 20px;">
+                    <!-- Quick Transfer Widget -->
+                    <div class="quick-transfer-card">
+                        <h3>⚡ Quick Transfer</h3>
+                        <form onsubmit="handleQuickTransfer(event)">
+                            <div class="quick-transfer-row">
+                                <div class="form-group">
+                                    <label>From</label>
+                                    <select id="quickFrom" class="form-control" required>
+                                        <option value="">Account...</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>To (ID)</label>
+                                    <input type="number" id="quickTo" class="form-control" placeholder="ID" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Amount</label>
+                                    <input type="number" id="quickAmount" class="form-control" placeholder="0.00"
+                                        min="0.01" step="0.01" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm">Send</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="card">
+                        <div class="card-header">
                             <span class="card-title">Recent Activity</span>
                         </div>
                         <div id="recentActivity">
@@ -205,8 +299,10 @@
             <!-- ── ACCOUNTS PAGE ───────────────────────── -->
             <section id="page-accounts" class="page-section">
                 <div class="page-header">
-                    <h2>My Accounts</h2>
-                    <p>Manage your bank accounts and create new ones.</p>
+                    <div>
+                        <h2>My Accounts</h2>
+                        <p>Manage your bank accounts and create new ones.</p>
+                    </div>
                 </div>
 
                 <div style="margin-bottom: 20px;">
@@ -255,8 +351,10 @@
             <!-- ── TRANSACTIONS PAGE ───────────────────── -->
             <section id="page-transactions" class="page-section">
                 <div class="page-header">
-                    <h2>Transactions</h2>
-                    <p>Deposit, withdraw, or transfer funds between accounts.</p>
+                    <div>
+                        <h2>Transactions</h2>
+                        <p>Deposit, withdraw, or transfer funds between accounts.</p>
+                    </div>
                 </div>
 
                 <div class="txn-form-grid">
@@ -280,7 +378,10 @@
                                 <input type="text" id="depositDesc" class="form-control"
                                     placeholder="e.g. Salary Deposit">
                             </div>
-                            <button type="submit" class="btn btn-success" style="width: 100%;">Deposit Funds</button>
+                            <button type="submit" class="btn btn-success" style="width: 100%;">
+                                <span class="btn-spinner"></span>
+                                <span class="btn-text">Deposit Funds</span>
+                            </button>
                         </form>
                     </div>
 
@@ -304,7 +405,10 @@
                                 <input type="text" id="withdrawDesc" class="form-control"
                                     placeholder="e.g. ATM Withdrawal">
                             </div>
-                            <button type="submit" class="btn btn-danger" style="width: 100%;">Withdraw Funds</button>
+                            <button type="submit" class="btn btn-danger" style="width: 100%;">
+                                <span class="btn-spinner"></span>
+                                <span class="btn-text">Withdraw Funds</span>
+                            </button>
                         </form>
                     </div>
 
@@ -333,7 +437,10 @@
                                 <input type="text" id="transferDesc" class="form-control"
                                     placeholder="e.g. Rent Payment">
                             </div>
-                            <button type="submit" class="btn btn-primary" style="width: 100%;">Transfer Funds</button>
+                            <button type="submit" class="btn btn-primary" style="width: 100%;">
+                                <span class="btn-spinner"></span>
+                                <span class="btn-text">Transfer Funds</span>
+                            </button>
                         </form>
                     </div>
                 </div>
@@ -342,15 +449,30 @@
             <!-- ── HISTORY PAGE ────────────────────────── -->
             <section id="page-history" class="page-section">
                 <div class="page-header">
-                    <h2>Transaction History</h2>
-                    <p>View all your past transactions.</p>
+                    <div>
+                        <h2>Transaction History</h2>
+                        <p>View, search, and export your past transactions.</p>
+                    </div>
                 </div>
 
                 <div class="card" style="margin-bottom: 20px;">
-                    <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: end;">
-                        <div class="form-group" style="margin-bottom: 0; flex: 1; min-width: 150px;">
-                            <label>Filter by Type</label>
-                            <select id="historyTypeFilter" class="form-control" onchange="loadHistory()">
+                    <div class="history-toolbar">
+                        <div class="search-input-wrap">
+                            <span class="search-icon">🔍</span>
+                            <input type="text" id="historySearch" class="form-control"
+                                placeholder="Search transactions..." oninput="debounceFilterHistory()">
+                        </div>
+                        <div class="form-group">
+                            <label>From</label>
+                            <input type="date" id="historyDateFrom" class="form-control" onchange="filterHistory()">
+                        </div>
+                        <div class="form-group">
+                            <label>To</label>
+                            <input type="date" id="historyDateTo" class="form-control" onchange="filterHistory()">
+                        </div>
+                        <div class="form-group">
+                            <label>Type</label>
+                            <select id="historyTypeFilter" class="form-control" onchange="filterHistory()">
                                 <option value="">All Types</option>
                                 <option value="DEPOSIT">Deposits</option>
                                 <option value="WITHDRAWAL">Withdrawals</option>
@@ -358,6 +480,8 @@
                                 <option value="PAYMENT">Payments</option>
                             </select>
                         </div>
+                        <button class="btn btn-secondary btn-sm" onclick="exportTransactionsCSV()" title="Export CSV">📥
+                            CSV</button>
                         <button class="btn btn-secondary btn-sm" onclick="loadHistory()">🔄 Refresh</button>
                     </div>
                 </div>
@@ -368,14 +492,17 @@
                             <div class="spinner"></div>Loading...
                         </div>
                     </div>
+                    <div class="pagination" id="historyPagination" style="display:none;"></div>
                 </div>
             </section>
 
             <!-- ── ANALYTICS PAGE ──────────────────────── -->
             <section id="page-analytics" class="page-section">
                 <div class="page-header">
-                    <h2>AI Insights</h2>
-                    <p>Fraud detection scores and predictive spending analytics.</p>
+                    <div>
+                        <h2>AI Insights</h2>
+                        <p>Fraud detection scores and predictive spending analytics.</p>
+                    </div>
                 </div>
 
                 <div class="grid-2" style="margin-bottom: 20px;">
@@ -411,6 +538,16 @@
                     </div>
                 </div>
 
+                <!-- Monthly Trend Chart -->
+                <div class="card" style="margin-bottom: 20px;">
+                    <div class="card-header">
+                        <span class="card-title">Monthly Income vs Expenses</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="monthlyTrendChart"></canvas>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="card-header">
                         <span class="card-title">AI Risk Scores</span>
@@ -427,8 +564,10 @@
             <!-- ── PROFILE PAGE ────────────────────────── -->
             <section id="page-profile" class="page-section">
                 <div class="page-header">
-                    <h2>My Profile</h2>
-                    <p>View and manage your profile information.</p>
+                    <div>
+                        <h2>My Profile</h2>
+                        <p>View and manage your profile information.</p>
+                    </div>
                 </div>
 
                 <div class="profile-header" id="profileHeader">

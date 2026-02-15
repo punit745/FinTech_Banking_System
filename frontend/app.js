@@ -1,8 +1,10 @@
 /**
  * FinTech Banking System — Frontend Application
  * ================================================
- * Single Page Application logic: API calls, DOM manipulation,
- * Chart.js integration, and JWT token management.
+ * SPA logic: API calls, DOM manipulation, Chart.js,
+ * JWT management, theme toggle, notification center,
+ * confirmation modals, session timer, search/filter/pagination,
+ * CSV export, and animated KPIs.
  */
 
 // ── Config ────────────────────────────────────────────────
@@ -10,16 +12,53 @@ const API_BASE = window.location.origin;
 let authToken = localStorage.getItem("fintech_token") || null;
 let currentUser = JSON.parse(localStorage.getItem("fintech_user") || "null");
 
-// Chart instances (to destroy before re-creating)
+// Chart instances
 let balanceChartInstance = null;
+let spendingDoughnutInstance = null;
+let monthlyTrendInstance = null;
+
+// History state
+let allTransactions = [];
+let filteredTransactions = [];
+let currentPage = 1;
+const PAGE_SIZE = 20;
+let filterDebounceTimer = null;
+
+// Notifications
+let notifications = JSON.parse(localStorage.getItem("fintech_notifications") || "[]");
+
+// Modal
+let pendingAction = null;
+
+// Session timer
+let sessionTimerInterval = null;
+const SESSION_DURATION = 30 * 60; // 30 minutes
+let sessionSecondsLeft = SESSION_DURATION;
+
+// Previous KPI values for animation
+let prevKPIs = { balance: 0, accounts: 0, income: 0, expenses: 0 };
 
 // ── Init ──────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
+    // Apply saved theme
+    const savedTheme = localStorage.getItem("fintech_theme") || "dark";
+    document.documentElement.setAttribute("data-theme", savedTheme);
+    updateThemeIcon(savedTheme);
+
     if (authToken && currentUser) {
         showApp();
     } else {
         showAuth();
     }
+
+    // Close notification panel on outside click
+    document.addEventListener("click", (e) => {
+        const panel = document.getElementById("notifPanel");
+        const bell = document.getElementById("notifBell");
+        if (panel && bell && !panel.contains(e.target) && !bell.contains(e.target)) {
+            panel.classList.remove("open");
+        }
+    });
 });
 
 // ══════════════════════════════════════════════════════════
@@ -54,6 +93,50 @@ function formatCurrency(amount) {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
 }
 
+function formatDate(dateStr) {
+    if (!dateStr) return "—";
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function getGreeting() {
+    const h = new Date().getHours();
+    if (h < 12) return "Good Morning";
+    if (h < 17) return "Good Afternoon";
+    return "Good Evening";
+}
+
+// ── Animated KPI Counter ─────────────────────────────────
+function animateValue(element, start, end, duration, isCurrency = true) {
+    const startTime = performance.now();
+    const update = (currentTime) => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const currentVal = start + (end - start) * eased;
+        element.textContent = isCurrency ? formatCurrency(currentVal) : Math.round(currentVal).toString();
+        if (progress < 1) {
+            requestAnimationFrame(update);
+        } else {
+            element.classList.add("flash");
+            setTimeout(() => element.classList.remove("flash"), 600);
+        }
+    };
+    requestAnimationFrame(update);
+}
+
+// ── Transaction Category Detection ───────────────────────
+function categorizeTransaction(txn) {
+    const text = ((txn.narrative || "") + " " + (txn.type || "")).toLowerCase();
+    if (/salary|payroll|wage/.test(text)) return { cat: "salary", label: "💰 Salary" };
+    if (/food|restaurant|grocery|cafe|pizza|burger/.test(text)) return { cat: "food", label: "🍔 Food" };
+    if (/rent|housing|mortgage/.test(text)) return { cat: "rent", label: "🏠 Rent" };
+    if (/shop|amazon|buy|purchase|store/.test(text)) return { cat: "shopping", label: "🛒 Shopping" };
+    if (/bill|electric|water|gas|internet|phone|subscription/.test(text)) return { cat: "bills", label: "📄 Bills" };
+    if (/transfer/.test(text)) return { cat: "transfer", label: "🔄 Transfer" };
+    return { cat: "other", label: "📌 Other" };
+}
+
 // ── Toast Notifications ──────────────────────────────────
 
 function showToast(message, type = "info") {
@@ -71,18 +154,173 @@ function showToast(message, type = "info") {
 }
 
 // ══════════════════════════════════════════════════════════
+//  THEME TOGGLE
+// ══════════════════════════════════════════════════════════
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute("data-theme") || "dark";
+    const next = current === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("fintech_theme", next);
+    updateThemeIcon(next);
+}
+
+function updateThemeIcon(theme) {
+    const btn = document.getElementById("themeToggleBtn");
+    if (btn) btn.textContent = theme === "dark" ? "🌙" : "☀️";
+}
+
+// ══════════════════════════════════════════════════════════
+//  NOTIFICATION CENTER
+// ══════════════════════════════════════════════════════════
+
+function addNotification(icon, message) {
+    const notif = { icon, message, time: new Date().toLocaleTimeString() };
+    notifications.unshift(notif);
+    if (notifications.length > 50) notifications.pop();
+    localStorage.setItem("fintech_notifications", JSON.stringify(notifications));
+    renderNotifications();
+}
+
+function renderNotifications() {
+    const list = document.getElementById("notifList");
+    const count = document.getElementById("notifCount");
+    if (!list) return;
+
+    if (notifications.length === 0) {
+        list.innerHTML = '<div class="notif-empty">No notifications yet</div>';
+        count.textContent = "";
+        return;
+    }
+
+    count.textContent = notifications.length > 9 ? "9+" : notifications.length;
+    list.innerHTML = notifications.slice(0, 20).map(n => `
+        <div class="notif-item">
+            <span class="notif-icon">${n.icon}</span>
+            <div class="notif-text">
+                <div class="notif-msg">${n.message}</div>
+                <div class="notif-time">${n.time}</div>
+            </div>
+        </div>
+    `).join("");
+}
+
+function toggleNotifications() {
+    const panel = document.getElementById("notifPanel");
+    panel.classList.toggle("open");
+}
+
+function clearNotifications() {
+    notifications = [];
+    localStorage.setItem("fintech_notifications", "[]");
+    renderNotifications();
+}
+
+// ══════════════════════════════════════════════════════════
+//  MODAL SYSTEM
+// ══════════════════════════════════════════════════════════
+
+function openModal(id) {
+    document.getElementById(id).classList.add("open");
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.remove("open");
+    if (id === "confirmModal") pendingAction = null;
+}
+
+function showConfirmation(title, subtitle, details, action) {
+    document.getElementById("confirmTitle").textContent = title;
+    document.getElementById("confirmSubtitle").textContent = subtitle;
+
+    let html = "";
+    for (const [label, value] of Object.entries(details)) {
+        const cls = label === "Amount" ? "total" : "";
+        html += `<div class="confirm-row ${cls}"><span class="label">${label}</span><span class="value">${value}</span></div>`;
+    }
+    document.getElementById("confirmDetails").innerHTML = html;
+    pendingAction = action;
+    openModal("confirmModal");
+}
+
+async function executePendingAction() {
+    if (!pendingAction) return;
+    const btn = document.getElementById("confirmActionBtn");
+    btn.classList.add("loading");
+    btn.disabled = true;
+    try {
+        await pendingAction();
+    } finally {
+        btn.classList.remove("loading");
+        btn.disabled = false;
+        closeModal("confirmModal");
+    }
+}
+
+function showReceipt(amount, details) {
+    document.getElementById("receiptAmount").textContent = formatCurrency(amount);
+    let html = "";
+    for (const [label, value] of Object.entries(details)) {
+        html += `<div class="receipt-row"><span class="label">${label}</span><span class="value">${value}</span></div>`;
+    }
+    document.getElementById("receiptDetails").innerHTML = html;
+    openModal("receiptModal");
+}
+
+// ══════════════════════════════════════════════════════════
+//  SESSION TIMER
+// ══════════════════════════════════════════════════════════
+
+function startSessionTimer() {
+    sessionSecondsLeft = SESSION_DURATION;
+    if (sessionTimerInterval) clearInterval(sessionTimerInterval);
+    sessionTimerInterval = setInterval(() => {
+        sessionSecondsLeft--;
+        updateSessionDisplay();
+        if (sessionSecondsLeft <= 0) {
+            clearInterval(sessionTimerInterval);
+            showToast("Session expired. Logging out...", "error");
+            setTimeout(logout, 1500);
+        } else if (sessionSecondsLeft === 120) {
+            showToast("⚠️ Your session expires in 2 minutes!", "info");
+        }
+    }, 1000);
+    updateSessionDisplay();
+}
+
+function stopSessionTimer() {
+    if (sessionTimerInterval) clearInterval(sessionTimerInterval);
+}
+
+function updateSessionDisplay() {
+    const el = document.getElementById("sessionTimerValue");
+    const container = document.getElementById("sessionTimer");
+    if (!el) return;
+    const m = Math.floor(sessionSecondsLeft / 60);
+    const s = sessionSecondsLeft % 60;
+    el.textContent = `${m}:${s.toString().padStart(2, "0")}`;
+
+    container.classList.remove("warning", "critical");
+    if (sessionSecondsLeft <= 120) container.classList.add("critical");
+    else if (sessionSecondsLeft <= 300) container.classList.add("warning");
+}
+
+// ══════════════════════════════════════════════════════════
 //  AUTH FUNCTIONS
 // ══════════════════════════════════════════════════════════
 
 function showAuth() {
     document.getElementById("authPage").style.display = "flex";
     document.getElementById("appPage").style.display = "none";
+    stopSessionTimer();
 }
 
 function showApp() {
     document.getElementById("authPage").style.display = "none";
     document.getElementById("appPage").style.display = "flex";
     updateSidebarUser();
+    renderNotifications();
+    startSessionTimer();
     navigateTo("dashboard");
 }
 
@@ -101,8 +339,8 @@ function switchAuthTab(tab) {
 async function handleLogin(e) {
     e.preventDefault();
     const btn = document.getElementById("loginBtn");
+    btn.classList.add("loading");
     btn.disabled = true;
-    btn.textContent = "Signing in...";
 
     try {
         const data = await apiFetch("/auth/login", {
@@ -116,21 +354,22 @@ async function handleLogin(e) {
         currentUser = { user_id: data.user_id, username: data.username, role: data.role };
         localStorage.setItem("fintech_token", authToken);
         localStorage.setItem("fintech_user", JSON.stringify(currentUser));
+        addNotification("🔐", `Signed in as ${data.username}`);
         showToast(`Welcome back, ${data.username}!`, "success");
         showApp();
     } catch (err) {
         showToast(err.message, "error");
     } finally {
+        btn.classList.remove("loading");
         btn.disabled = false;
-        btn.textContent = "Sign In";
     }
 }
 
 async function handleRegister(e) {
     e.preventDefault();
     const btn = document.getElementById("registerBtn");
+    btn.classList.add("loading");
     btn.disabled = true;
-    btn.textContent = "Creating...";
 
     try {
         await apiFetch("/auth/register", {
@@ -145,13 +384,14 @@ async function handleRegister(e) {
             }),
         });
         showToast("Account created! You can now sign in.", "success");
+        addNotification("🎉", "Account created successfully!");
         switchAuthTab("login");
         document.getElementById("loginUsername").value = document.getElementById("regUsername").value;
     } catch (err) {
         showToast(err.message, "error");
     } finally {
+        btn.classList.remove("loading");
         btn.disabled = false;
-        btn.textContent = "Create Account";
     }
 }
 
@@ -160,6 +400,7 @@ function logout() {
     currentUser = null;
     localStorage.removeItem("fintech_token");
     localStorage.removeItem("fintech_user");
+    stopSessionTimer();
     showAuth();
     showToast("You have been signed out.", "info");
 }
@@ -177,12 +418,10 @@ function updateSidebarUser() {
 // ══════════════════════════════════════════════════════════
 
 function navigateTo(page) {
-    // Update nav items
     document.querySelectorAll(".nav-item").forEach(item => {
         item.classList.toggle("active", item.dataset.page === page);
     });
 
-    // Show target page section
     document.querySelectorAll(".page-section").forEach(s => s.classList.remove("active"));
     const target = document.getElementById(`page-${page}`);
     if (target) target.classList.add("active");
@@ -212,26 +451,39 @@ function toggleSidebar() {
 // ══════════════════════════════════════════════════════════
 
 async function loadDashboard() {
+    // Dynamic greeting
+    const greetEl = document.getElementById("dashboardGreeting");
+    if (greetEl && currentUser) {
+        greetEl.textContent = `${getGreeting()}, ${currentUser.username}`;
+    }
+
     try {
-        // Load accounts + spending summary in parallel
         const [accounts, summary, history] = await Promise.all([
             apiFetch("/accounts/"),
             apiFetch("/analytics/spending-summary").catch(() => null),
             apiFetch("/transactions/history?limit=5").catch(() => []),
         ]);
 
-        // KPIs
+        // Animated KPIs
         const totalBalance = accounts.reduce((sum, a) => sum + a.current_balance, 0);
-        document.getElementById("kpiTotalBalance").textContent = formatCurrency(totalBalance);
-        document.getElementById("kpiAccountCount").textContent = accounts.length;
+        animateValue(document.getElementById("kpiTotalBalance"), prevKPIs.balance, totalBalance, 800);
+        animateValue(document.getElementById("kpiAccountCount"), prevKPIs.accounts, accounts.length, 600, false);
+        prevKPIs.balance = totalBalance;
+        prevKPIs.accounts = accounts.length;
 
         if (summary) {
-            document.getElementById("kpiTotalIncome").textContent = formatCurrency(summary.total_income);
-            document.getElementById("kpiTotalExpenses").textContent = formatCurrency(summary.total_expenses);
+            animateValue(document.getElementById("kpiTotalIncome"), prevKPIs.income, summary.total_income, 800);
+            animateValue(document.getElementById("kpiTotalExpenses"), prevKPIs.expenses, summary.total_expenses, 800);
+            prevKPIs.income = summary.total_income;
+            prevKPIs.expenses = summary.total_expenses;
         }
 
-        // Balance Chart
+        // Charts
         renderBalanceChart(accounts);
+        renderSpendingDoughnut(accounts);
+
+        // Quick transfer dropdown
+        populateQuickTransferDropdown(accounts);
 
         // Recent Activity
         renderRecentActivity(history);
@@ -245,26 +497,19 @@ function renderBalanceChart(accounts) {
     const ctx = document.getElementById("balanceChart");
     if (!ctx) return;
 
-    if (balanceChartInstance) {
-        balanceChartInstance.destroy();
-    }
+    if (balanceChartInstance) balanceChartInstance.destroy();
 
     if (accounts.length === 0) {
         ctx.parentElement.innerHTML = '<div class="empty-state"><div class="icon">📊</div><h3>No accounts yet</h3><p>Create your first account to see charts.</p></div>';
         return;
     }
 
-    const colors = {
-        savings: "#10b981",
-        checking: "#06b6d4",
-        wallet: "#8b5cf6",
-        loan: "#f43f5e",
-    };
+    const colors = { savings: "#10b981", checking: "#06b6d4", wallet: "#8b5cf6", loan: "#f43f5e" };
 
     balanceChartInstance = new Chart(ctx, {
         type: "bar",
         data: {
-            labels: accounts.map(a => `${a.account_number}`),
+            labels: accounts.map(a => a.account_number),
             datasets: [{
                 label: "Balance",
                 data: accounts.map(a => a.current_balance),
@@ -289,21 +534,61 @@ function renderBalanceChart(accounts) {
                 },
             },
             scales: {
-                x: {
-                    ticks: { color: "#64748b", font: { size: 11 } },
-                    grid: { display: false },
-                },
+                x: { ticks: { color: "#64748b", font: { size: 11 } }, grid: { display: false } },
                 y: {
-                    ticks: {
-                        color: "#64748b",
-                        font: { size: 11 },
-                        callback: v => "$" + v.toLocaleString(),
-                    },
+                    ticks: { color: "#64748b", font: { size: 11 }, callback: v => "$" + v.toLocaleString() },
                     grid: { color: "rgba(255,255,255,0.04)" },
                 },
             },
         },
     });
+}
+
+function renderSpendingDoughnut(accounts) {
+    const ctx = document.getElementById("spendingDoughnut");
+    if (!ctx) return;
+
+    if (spendingDoughnutInstance) spendingDoughnutInstance.destroy();
+
+    if (accounts.length === 0) {
+        ctx.parentElement.innerHTML = '<div class="empty-state"><div class="icon">🍩</div><h3>No data</h3></div>';
+        return;
+    }
+
+    const typeMap = {};
+    for (const a of accounts) {
+        typeMap[a.account_type] = (typeMap[a.account_type] || 0) + a.current_balance;
+    }
+
+    const labels = Object.keys(typeMap);
+    const data = Object.values(typeMap);
+    const bgColors = labels.map(t => ({ savings: "#10b981", checking: "#06b6d4", wallet: "#8b5cf6", loan: "#f43f5e" }[t] || "#6366f1"));
+
+    spendingDoughnutInstance = new Chart(ctx, {
+        type: "doughnut",
+        data: {
+            labels: labels.map(l => l.charAt(0).toUpperCase() + l.slice(1)),
+            datasets: [{ data, backgroundColor: bgColors, borderWidth: 0, hoverOffset: 8 }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: "65%",
+            plugins: {
+                legend: {
+                    position: "bottom",
+                    labels: { color: "#94a3b8", padding: 16, usePointStyle: true, pointStyleWidth: 10, font: { size: 12 } },
+                },
+            },
+        },
+    });
+}
+
+function populateQuickTransferDropdown(accounts) {
+    const sel = document.getElementById("quickFrom");
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Account...</option>' +
+        accounts.map(a => `<option value="${a.account_id}">${a.account_number} (${formatCurrency(a.current_balance)})</option>`).join("");
 }
 
 function renderRecentActivity(transactions) {
@@ -318,6 +603,7 @@ function renderRecentActivity(transactions) {
         const isCredit = txn.amount > 0;
         const amountClass = isCredit ? "amount-positive" : "amount-negative";
         const icon = txn.type === "DEPOSIT" ? "💵" : txn.type === "WITHDRAWAL" ? "🏧" : txn.type === "TRANSFER" ? "🔄" : "💳";
+        const { label } = categorizeTransaction(txn);
         html += `
             <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--bg-glass);border-radius:var(--radius-sm);border:1px solid var(--border-glass);">
                 <div style="display:flex;align-items:center;gap:10px;">
@@ -333,6 +619,35 @@ function renderRecentActivity(transactions) {
     }
     html += "</div>";
     container.innerHTML = html;
+}
+
+// ── Quick Transfer ───────────────────────────────────────
+async function handleQuickTransfer(e) {
+    e.preventDefault();
+    const fromId = parseInt(document.getElementById("quickFrom").value);
+    const toId = parseInt(document.getElementById("quickTo").value);
+    const amount = parseFloat(document.getElementById("quickAmount").value);
+
+    showConfirmation("Quick Transfer", "Confirm the transfer details below.", {
+        "From Account": `ID: ${fromId}`,
+        "To Account": `ID: ${toId}`,
+        "Amount": formatCurrency(amount),
+    }, async () => {
+        const data = await apiFetch("/transactions/transfer", {
+            method: "POST",
+            body: JSON.stringify({
+                sender_account_id: fromId,
+                receiver_account_id: toId,
+                amount,
+                description: "Quick Transfer",
+            }),
+        });
+        addNotification("🔄", `Transferred ${formatCurrency(amount)} to Account #${toId}`);
+        showReceipt(amount, { "Type": "Transfer", "To": `Account ${toId}`, "Status": "Completed", "Time": new Date().toLocaleString() });
+        document.getElementById("quickTo").value = "";
+        document.getElementById("quickAmount").value = "";
+        loadDashboard();
+    });
 }
 
 // ══════════════════════════════════════════════════════════
@@ -391,6 +706,7 @@ async function handleCreateAccount(e) {
             }),
         });
         showToast(data.message + ` (${data.data.account_number})`, "success");
+        addNotification("🏦", `New ${document.getElementById("newAccountType").value} account created`);
         hideCreateAccountModal();
         loadAccounts();
     } catch (err) {
@@ -399,7 +715,7 @@ async function handleCreateAccount(e) {
 }
 
 // ══════════════════════════════════════════════════════════
-//  TRANSACTIONS
+//  TRANSACTIONS (with Confirmation Modals)
 // ══════════════════════════════════════════════════════════
 
 async function loadTransactionDropdowns() {
@@ -420,140 +736,267 @@ async function loadTransactionDropdowns() {
 
 async function handleDeposit(e) {
     e.preventDefault();
-    try {
+    const accountId = parseInt(document.getElementById("depositAccount").value);
+    const amount = parseFloat(document.getElementById("depositAmount").value);
+    const desc = document.getElementById("depositDesc").value || "Cash Deposit";
+    const acctText = document.getElementById("depositAccount").selectedOptions[0].text;
+
+    showConfirmation("Confirm Deposit", "Review the deposit details.", {
+        "Account": acctText,
+        "Description": desc,
+        "Amount": formatCurrency(amount),
+    }, async () => {
         const data = await apiFetch("/transactions/deposit", {
             method: "POST",
-            body: JSON.stringify({
-                account_id: parseInt(document.getElementById("depositAccount").value),
-                amount: parseFloat(document.getElementById("depositAmount").value),
-                description: document.getElementById("depositDesc").value || "Cash Deposit",
-            }),
+            body: JSON.stringify({ account_id: accountId, amount, description: desc }),
         });
-        showToast(data.message, "success");
+        addNotification("💵", `Deposited ${formatCurrency(amount)}`);
+        showReceipt(amount, { "Type": "Deposit", "Account": acctText.split("(")[0].trim(), "Description": desc, "Status": "Completed", "Time": new Date().toLocaleString() });
         document.getElementById("depositAmount").value = "";
         document.getElementById("depositDesc").value = "";
         loadTransactionDropdowns();
-    } catch (err) {
-        showToast(err.message, "error");
-    }
+    });
 }
 
 async function handleWithdraw(e) {
     e.preventDefault();
-    try {
+    const accountId = parseInt(document.getElementById("withdrawAccount").value);
+    const amount = parseFloat(document.getElementById("withdrawAmount").value);
+    const desc = document.getElementById("withdrawDesc").value || "Cash Withdrawal";
+    const acctText = document.getElementById("withdrawAccount").selectedOptions[0].text;
+
+    showConfirmation("Confirm Withdrawal", "Review the withdrawal details.", {
+        "Account": acctText,
+        "Description": desc,
+        "Amount": formatCurrency(amount),
+    }, async () => {
         const data = await apiFetch("/transactions/withdraw", {
             method: "POST",
-            body: JSON.stringify({
-                account_id: parseInt(document.getElementById("withdrawAccount").value),
-                amount: parseFloat(document.getElementById("withdrawAmount").value),
-                description: document.getElementById("withdrawDesc").value || "Cash Withdrawal",
-            }),
+            body: JSON.stringify({ account_id: accountId, amount, description: desc }),
         });
-        showToast(data.message, "success");
+        addNotification("🏧", `Withdrew ${formatCurrency(amount)}`);
+        showReceipt(amount, { "Type": "Withdrawal", "Account": acctText.split("(")[0].trim(), "Description": desc, "Status": "Completed", "Time": new Date().toLocaleString() });
         document.getElementById("withdrawAmount").value = "";
         document.getElementById("withdrawDesc").value = "";
         loadTransactionDropdowns();
-    } catch (err) {
-        showToast(err.message, "error");
-    }
+    });
 }
 
 async function handleTransfer(e) {
     e.preventDefault();
-    try {
+    const fromId = parseInt(document.getElementById("transferFrom").value);
+    const toId = parseInt(document.getElementById("transferTo").value);
+    const amount = parseFloat(document.getElementById("transferAmount").value);
+    const desc = document.getElementById("transferDesc").value || "Fund Transfer";
+    const acctText = document.getElementById("transferFrom").selectedOptions[0].text;
+
+    showConfirmation("Confirm Transfer", "Review the transfer details.", {
+        "From": acctText,
+        "To": `Account ID: ${toId}`,
+        "Description": desc,
+        "Amount": formatCurrency(amount),
+    }, async () => {
         const data = await apiFetch("/transactions/transfer", {
             method: "POST",
             body: JSON.stringify({
-                sender_account_id: parseInt(document.getElementById("transferFrom").value),
-                receiver_account_id: parseInt(document.getElementById("transferTo").value),
-                amount: parseFloat(document.getElementById("transferAmount").value),
-                description: document.getElementById("transferDesc").value || "Fund Transfer",
+                sender_account_id: fromId,
+                receiver_account_id: toId,
+                amount,
+                description: desc,
             }),
         });
-        showToast(data.message, "success");
+        addNotification("🔄", `Transferred ${formatCurrency(amount)} to Account #${toId}`);
+        showReceipt(amount, { "Type": "Transfer", "From": acctText.split("(")[0].trim(), "To": `Account ${toId}`, "Description": desc, "Status": "Completed", "Time": new Date().toLocaleString() });
         document.getElementById("transferAmount").value = "";
         document.getElementById("transferTo").value = "";
         document.getElementById("transferDesc").value = "";
         loadTransactionDropdowns();
-    } catch (err) {
-        showToast(err.message, "error");
-    }
+    });
 }
 
 // ══════════════════════════════════════════════════════════
-//  TRANSACTION HISTORY
+//  TRANSACTION HISTORY (Search, Filter, Pagination, CSV)
 // ══════════════════════════════════════════════════════════
 
 async function loadHistory() {
     const container = document.getElementById("historyTable");
     container.innerHTML = '<div class="loading-overlay"><div class="spinner"></div>Loading...</div>';
+    document.getElementById("historyPagination").style.display = "none";
 
     try {
-        const typeFilter = document.getElementById("historyTypeFilter").value;
-        const url = `/transactions/history?limit=100${typeFilter ? `&type=${typeFilter}` : ""}`;
-        const transactions = await apiFetch(url);
-
-        if (transactions.length === 0) {
-            container.innerHTML = '<div class="empty-state"><div class="icon">📜</div><h3>No transactions found</h3><p>Adjust your filters or make a transaction first.</p></div>';
-            return;
-        }
-
-        let html = `
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Date</th>
-                        <th>Type</th>
-                        <th>Description</th>
-                        <th>Account</th>
-                        <th>Amount</th>
-                        <th>Balance</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-
-        for (const txn of transactions) {
-            const isCredit = txn.amount > 0;
-            const amountClass = isCredit ? "amount-positive" : "amount-negative";
-            const statusBadge = txn.status === "completed"
-                ? '<span class="badge badge-success">completed</span>'
-                : txn.status === "pending"
-                    ? '<span class="badge badge-warning">pending</span>'
-                    : `<span class="badge badge-danger">${txn.status}</span>`;
-
-            html += `
-                <tr>
-                    <td>#${txn.transaction_id}</td>
-                    <td style="white-space:nowrap;">${txn.transaction_date ? txn.transaction_date.split(" ")[0] : "—"}</td>
-                    <td><span class="badge badge-info">${txn.type}</span></td>
-                    <td>${txn.narrative || "—"}</td>
-                    <td style="font-family:monospace;font-size:0.78rem;">${txn.account_number || "—"}</td>
-                    <td class="${amountClass}">${isCredit ? "+" : ""}${formatCurrency(txn.amount)}</td>
-                    <td>${formatCurrency(txn.balance_after)}</td>
-                    <td>${statusBadge}</td>
-                </tr>
-            `;
-        }
-
-        html += "</tbody></table>";
-        container.innerHTML = html;
+        const transactions = await apiFetch("/transactions/history?limit=500");
+        allTransactions = transactions || [];
+        filterHistory();
     } catch (err) {
         container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Error</h3><p>${err.message}</p></div>`;
     }
 }
 
+function debounceFilterHistory() {
+    clearTimeout(filterDebounceTimer);
+    filterDebounceTimer = setTimeout(filterHistory, 300);
+}
+
+function filterHistory() {
+    const searchTerm = (document.getElementById("historySearch")?.value || "").toLowerCase();
+    const dateFrom = document.getElementById("historyDateFrom")?.value || "";
+    const dateTo = document.getElementById("historyDateTo")?.value || "";
+    const typeFilter = document.getElementById("historyTypeFilter")?.value || "";
+
+    filteredTransactions = allTransactions.filter(txn => {
+        if (searchTerm) {
+            const text = `${txn.narrative || ""} ${txn.type || ""} ${txn.amount} ${txn.account_number || ""}`.toLowerCase();
+            if (!text.includes(searchTerm)) return false;
+        }
+        if (dateFrom && txn.transaction_date) {
+            if (txn.transaction_date.split(" ")[0] < dateFrom) return false;
+        }
+        if (dateTo && txn.transaction_date) {
+            if (txn.transaction_date.split(" ")[0] > dateTo) return false;
+        }
+        if (typeFilter && txn.type !== typeFilter) return false;
+        return true;
+    });
+
+    currentPage = 1;
+    renderHistoryPage();
+}
+
+function renderHistoryPage() {
+    const container = document.getElementById("historyTable");
+    const totalItems = filteredTransactions.length;
+    const totalPages = Math.ceil(totalItems / PAGE_SIZE) || 1;
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end = Math.min(start + PAGE_SIZE, totalItems);
+    const pageItems = filteredTransactions.slice(start, end);
+
+    if (totalItems === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="icon">📜</div><h3>No transactions found</h3><p>Adjust your filters or make a transaction first.</p></div>';
+        document.getElementById("historyPagination").style.display = "none";
+        return;
+    }
+
+    let html = `
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th>Account</th>
+                    <th>Amount</th>
+                    <th>Balance</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    for (const txn of pageItems) {
+        const isCredit = txn.amount > 0;
+        const amountClass = isCredit ? "amount-positive" : "amount-negative";
+        const { cat, label } = categorizeTransaction(txn);
+        const statusBadge = txn.status === "completed"
+            ? '<span class="badge badge-success">completed</span>'
+            : txn.status === "pending"
+                ? '<span class="badge badge-warning">pending</span>'
+                : `<span class="badge badge-danger">${txn.status}</span>`;
+
+        html += `
+            <tr>
+                <td>#${txn.transaction_id}</td>
+                <td style="white-space:nowrap;">${txn.transaction_date ? txn.transaction_date.split(" ")[0] : "—"}</td>
+                <td><span class="badge badge-info">${txn.type}</span></td>
+                <td><span class="category-tag ${cat}">${label}</span></td>
+                <td>${txn.narrative || "—"}</td>
+                <td style="font-family:monospace;font-size:0.78rem;">${txn.account_number || "—"}</td>
+                <td class="${amountClass}">${isCredit ? "+" : ""}${formatCurrency(txn.amount)}</td>
+                <td>${formatCurrency(txn.balance_after)}</td>
+                <td>${statusBadge}</td>
+            </tr>
+        `;
+    }
+
+    html += "</tbody></table>";
+    container.innerHTML = html;
+
+    // Pagination
+    const paginationEl = document.getElementById("historyPagination");
+    if (totalPages > 1) {
+        let pHtml = `<button ${currentPage <= 1 ? "disabled" : ""} onclick="goToPage(${currentPage - 1})">‹ Prev</button>`;
+        const maxButtons = 5;
+        let startP = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+        let endP = Math.min(totalPages, startP + maxButtons - 1);
+        if (endP - startP < maxButtons - 1) startP = Math.max(1, endP - maxButtons + 1);
+
+        for (let i = startP; i <= endP; i++) {
+            pHtml += `<button class="${i === currentPage ? "active" : ""}" onclick="goToPage(${i})">${i}</button>`;
+        }
+        pHtml += `<span class="page-info">${start + 1}–${end} of ${totalItems}</span>`;
+        pHtml += `<button ${currentPage >= totalPages ? "disabled" : ""} onclick="goToPage(${currentPage + 1})">Next ›</button>`;
+        paginationEl.innerHTML = pHtml;
+        paginationEl.style.display = "flex";
+    } else {
+        paginationEl.style.display = "none";
+    }
+}
+
+function goToPage(page) {
+    currentPage = page;
+    renderHistoryPage();
+}
+
+// ── CSV Export ───────────────────────────────────────────
+function exportTransactionsCSV() {
+    const data = filteredTransactions.length > 0 ? filteredTransactions : allTransactions;
+    if (!data || data.length === 0) {
+        showToast("No transactions to export.", "info");
+        return;
+    }
+
+    const headers = ["ID", "Date", "Type", "Category", "Description", "Account", "Amount", "Balance After", "Status"];
+    const rows = data.map(t => {
+        const { label } = categorizeTransaction(t);
+        return [
+            t.transaction_id,
+            t.transaction_date || "",
+            t.type || "",
+            label,
+            `"${(t.narrative || "").replace(/"/g, '""')}"`,
+            t.account_number || "",
+            t.amount,
+            t.balance_after || "",
+            t.status || "",
+        ];
+    });
+
+    let csv = headers.join(",") + "\n";
+    csv += rows.map(r => r.join(",")).join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `transactions_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast(`Exported ${data.length} transactions to CSV`, "success");
+    addNotification("📥", `Exported ${data.length} transactions to CSV`);
+}
+
 // ══════════════════════════════════════════════════════════
-//  ANALYTICS
+//  ANALYTICS (with Monthly Trend Chart)
 // ══════════════════════════════════════════════════════════
 
 async function loadAnalytics() {
     try {
-        const [prediction, summary] = await Promise.all([
+        const [prediction, summary, history] = await Promise.all([
             apiFetch("/analytics/spending-prediction").catch(() => null),
             apiFetch("/analytics/spending-summary").catch(() => null),
+            apiFetch("/transactions/history?limit=500").catch(() => []),
         ]);
 
         // Prediction
@@ -574,11 +1017,97 @@ async function loadAnalytics() {
             document.getElementById("summaryTxnCount").textContent = summary.transaction_count;
         }
 
-        // Load risk scores
+        // Monthly trend chart
+        renderMonthlyTrendChart(history);
+
+        // Risk scores
         loadRiskScores();
     } catch (err) {
         showToast("Failed to load analytics: " + err.message, "error");
     }
+}
+
+function renderMonthlyTrendChart(transactions) {
+    const ctx = document.getElementById("monthlyTrendChart");
+    if (!ctx) return;
+    if (monthlyTrendInstance) monthlyTrendInstance.destroy();
+
+    if (!transactions || transactions.length === 0) {
+        ctx.parentElement.innerHTML = '<div class="empty-state"><div class="icon">📊</div><h3>No data</h3></div>';
+        return;
+    }
+
+    // Aggregate by month
+    const monthlyData = {};
+    for (const txn of transactions) {
+        if (!txn.transaction_date) continue;
+        const month = txn.transaction_date.substring(0, 7); // YYYY-MM
+        if (!monthlyData[month]) monthlyData[month] = { income: 0, expense: 0 };
+        if (txn.amount > 0) monthlyData[month].income += txn.amount;
+        else monthlyData[month].expense += Math.abs(txn.amount);
+    }
+
+    const sortedMonths = Object.keys(monthlyData).sort();
+    const labels = sortedMonths.map(m => {
+        const [y, mo] = m.split("-");
+        return new Date(y, mo - 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+    });
+
+    monthlyTrendInstance = new Chart(ctx, {
+        type: "line",
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: "Income",
+                    data: sortedMonths.map(m => monthlyData[m].income),
+                    borderColor: "#10b981",
+                    backgroundColor: "rgba(16, 185, 129, 0.1)",
+                    fill: true,
+                    tension: 0.4,
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    pointBackgroundColor: "#10b981",
+                },
+                {
+                    label: "Expenses",
+                    data: sortedMonths.map(m => monthlyData[m].expense),
+                    borderColor: "#f43f5e",
+                    backgroundColor: "rgba(244, 63, 94, 0.1)",
+                    fill: true,
+                    tension: 0.4,
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    pointBackgroundColor: "#f43f5e",
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: "top",
+                    labels: { color: "#94a3b8", usePointStyle: true, pointStyleWidth: 10, font: { size: 12 } },
+                },
+                tooltip: {
+                    backgroundColor: "rgba(15,23,42,0.95)",
+                    titleColor: "#f1f5f9",
+                    bodyColor: "#94a3b8",
+                    padding: 12,
+                    cornerRadius: 8,
+                    callbacks: { label: ctx => `${ctx.dataset.label}: ${formatCurrency(ctx.parsed.y)}` },
+                },
+            },
+            scales: {
+                x: { ticks: { color: "#64748b", font: { size: 11 } }, grid: { display: false } },
+                y: {
+                    ticks: { color: "#64748b", font: { size: 11 }, callback: v => "$" + v.toLocaleString() },
+                    grid: { color: "rgba(255,255,255,0.04)" },
+                },
+            },
+        },
+    });
 }
 
 async function loadRiskScores() {
@@ -660,14 +1189,12 @@ async function loadProfile() {
                 : '<span class="badge badge-danger">❌ Rejected</span>';
         document.getElementById("profileKYC").innerHTML = kycBadge;
 
-        // Detail fields
         document.getElementById("profileUserId").textContent = profile.user_id;
         document.getElementById("profileUsername").textContent = profile.username;
         document.getElementById("profileRole").textContent = profile.role;
         document.getElementById("profileStatus").textContent = profile.is_active ? "Active" : "Inactive";
         document.getElementById("profileCreated").textContent = profile.created_at || "—";
 
-        // Pre-fill edit form
         document.getElementById("editFullName").value = profile.full_name || "";
         document.getElementById("editEmail").value = profile.email || "";
         document.getElementById("editPhone").value = profile.phone_number || "";
@@ -693,6 +1220,7 @@ async function handleProfileUpdate(e) {
             body: JSON.stringify(body),
         });
         showToast("Profile updated successfully!", "success");
+        addNotification("👤", "Profile updated");
         loadProfile();
     } catch (err) {
         showToast(err.message, "error");
