@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="FinTech Banking System — A professional-grade banking application with AI fraud detection and predictive analytics.">
+    <title>FinTech Banking System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--  AUTH PAGE (Login / Register)                      -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <div id="authPage" class="auth-page">
+        <div class="auth-container">
+            <div class="auth-card">
+                <div class="auth-brand">
+                    <div class="logo-lg">🏦</div>
+                    <h1>FinTech Banking</h1>
+                    <p>Secure. Intelligent. Modern.</p>
+                </div>
+
+                <div class="auth-tabs">
+                    <button class="auth-tab active" onclick="switchAuthTab('login')">Sign In</button>
+                    <button class="auth-tab" onclick="switchAuthTab('register')">Create Account</button>
+                </div>
+
+                <!-- Login Form -->
+                <form id="loginForm" class="auth-form active" onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label for="loginUsername">Username</label>
+                        <input type="text" id="loginUsername" class="form-control" placeholder="Enter your username"
+                            required>
+                    </div>
+                    <div class="form-group">
+                        <label for="loginPassword">Password</label>
+                        <input type="password" id="loginPassword" class="form-control" placeholder="Enter your password"
+                            required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 8px;"
+                        id="loginBtn">
+                        Sign In
+                    </button>
+                </form>
+
+                <!-- Register Form -->
+                <form id="registerForm" class="auth-form" onsubmit="handleRegister(event)">
+                    <div class="form-group">
+                        <label for="regUsername">Username</label>
+                        <input type="text" id="regUsername" class="form-control" placeholder="Choose a username"
+                            required minlength="3">
+                    </div>
+                    <div class="form-group">
+                        <label for="regFullName">Full Name</label>
+                        <input type="text" id="regFullName" class="form-control" placeholder="Your full name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="regEmail">Email</label>
+                        <input type="email" id="regEmail" class="form-control" placeholder="you@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="regPhone">Phone Number</label>
+                        <input type="tel" id="regPhone" class="form-control" placeholder="+91 XXXXX XXXXX">
+                    </div>
+                    <div class="form-group">
+                        <label for="regDOB">Date of Birth</label>
+                        <input type="date" id="regDOB" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="regPassword">Password</label>
+                        <input type="password" id="regPassword" class="form-control" placeholder="Min. 6 characters"
+                            required minlength="6">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 8px;"
+                        id="registerBtn">
+                        Create Account
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--  MAIN APP (Dashboard)                              -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <div id="appPage" class="app-container" style="display: none;">
+
+        <!-- Mobile menu toggle -->
+        <button class="mobile-menu-toggle" onclick="toggleSidebar()">☰</button>
+        <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <div class="logo">🏦</div>
+                <div>
+                    <h1>FinTech Banking</h1>
+                    <div class="version">v2.0</div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-label">Main</div>
+                <a class="nav-item active" data-page="dashboard" onclick="navigateTo('dashboard')">
+                    <span class="icon">📊</span> Dashboard
+                </a>
+                <a class="nav-item" data-page="accounts" onclick="navigateTo('accounts')">
+                    <span class="icon">💰</span> Accounts
+                </a>
+                <a class="nav-item" data-page="transactions" onclick="navigateTo('transactions')">
+                    <span class="icon">💳</span> Transactions
+                </a>
+                <a class="nav-item" data-page="history" onclick="navigateTo('history')">
+                    <span class="icon">📜</span> History
+                </a>
+
+                <div class="nav-label">Intelligence</div>
+                <a class="nav-item" data-page="analytics" onclick="navigateTo('analytics')">
+                    <span class="icon">🤖</span> AI Insights
+                </a>
+
+                <div class="nav-label">Settings</div>
+                <a class="nav-item" data-page="profile" onclick="navigateTo('profile')">
+                    <span class="icon">👤</span> Profile
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-card">
+                    <div class="user-avatar" id="userAvatarInitials">U</div>
+                    <div class="user-info">
+                        <div class="name" id="sidebarUserName">User</div>
+                        <div class="role" id="sidebarUserRole">customer</div>
+                    </div>
+                    <button class="btn-logout" onclick="logout()" title="Sign Out">⏻</button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+
+            <!-- ── DASHBOARD PAGE ──────────────────────── -->
+            <section id="page-dashboard" class="page-section active">
+                <div class="page-header">
+                    <h2>Dashboard</h2>
+                    <p>Welcome back! Here's your financial overview.</p>
+                </div>
+
+                <div class="kpi-grid" id="dashboardKPIs">
+                    <div class="kpi-card indigo">
+                        <div class="kpi-icon">💰</div>
+                        <div class="kpi-value" id="kpiTotalBalance">$0.00</div>
+                        <div class="kpi-label">Total Balance</div>
+                    </div>
+                    <div class="kpi-card cyan">
+                        <div class="kpi-icon">🏧</div>
+                        <div class="kpi-value" id="kpiAccountCount">0</div>
+                        <div class="kpi-label">Accounts</div>
+                    </div>
+                    <div class="kpi-card emerald">
+                        <div class="kpi-icon">📈</div>
+                        <div class="kpi-value" id="kpiTotalIncome">$0.00</div>
+                        <div class="kpi-label">Total Income</div>
+                    </div>
+                    <div class="kpi-card rose">
+                        <div class="kpi-icon">📉</div>
+                        <div class="kpi-value" id="kpiTotalExpenses">$0.00</div>
+                        <div class="kpi-label">Total Expenses</div>
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">Account Balances</span>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="balanceChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">Recent Activity</span>
+                        </div>
+                        <div id="recentActivity">
+                            <div class="loading-overlay">
+                                <div class="spinner"></div>Loading...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── ACCOUNTS PAGE ───────────────────────── -->
+            <section id="page-accounts" class="page-section">
+                <div class="page-header">
+                    <h2>My Accounts</h2>
+                    <p>Manage your bank accounts and create new ones.</p>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <button class="btn btn-primary" onclick="showCreateAccountModal()">
+                        ＋ New Account
+                    </button>
+                </div>
+
+                <div id="createAccountForm" class="card" style="display: none; margin-bottom: 20px;">
+                    <h3 style="margin-bottom: 16px;">Create New Account</h3>
+                    <form onsubmit="handleCreateAccount(event)">
+                        <div class="grid-2">
+                            <div class="form-group">
+                                <label>Account Type</label>
+                                <select id="newAccountType" class="form-control" required>
+                                    <option value="savings">Savings Account</option>
+                                    <option value="checking">Checking Account</option>
+                                    <option value="wallet">Digital Wallet</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Currency</label>
+                                <select id="newAccountCurrency" class="form-control">
+                                    <option value="USD">USD — US Dollar</option>
+                                    <option value="EUR">EUR — Euro</option>
+                                    <option value="INR">INR — Indian Rupee</option>
+                                    <option value="GBP">GBP — British Pound</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 8px;">
+                            <button type="submit" class="btn btn-success">Create Account</button>
+                            <button type="button" class="btn btn-secondary"
+                                onclick="hideCreateAccountModal()">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div id="accountsList" class="kpi-grid">
+                    <div class="loading-overlay">
+                        <div class="spinner"></div>Loading accounts...
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── TRANSACTIONS PAGE ───────────────────── -->
+            <section id="page-transactions" class="page-section">
+                <div class="page-header">
+                    <h2>Transactions</h2>
+                    <p>Deposit, withdraw, or transfer funds between accounts.</p>
+                </div>
+
+                <div class="txn-form-grid">
+                    <!-- Deposit Form -->
+                    <div class="txn-form-card">
+                        <h3>💵 Deposit</h3>
+                        <form onsubmit="handleDeposit(event)">
+                            <div class="form-group">
+                                <label>Account</label>
+                                <select id="depositAccount" class="form-control" required>
+                                    <option value="">Select account...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Amount ($)</label>
+                                <input type="number" id="depositAmount" class="form-control" placeholder="0.00"
+                                    min="0.01" step="0.01" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Description</label>
+                                <input type="text" id="depositDesc" class="form-control"
+                                    placeholder="e.g. Salary Deposit">
+                            </div>
+                            <button type="submit" class="btn btn-success" style="width: 100%;">Deposit Funds</button>
+                        </form>
+                    </div>
+
+                    <!-- Withdraw Form -->
+                    <div class="txn-form-card">
+                        <h3>🏧 Withdraw</h3>
+                        <form onsubmit="handleWithdraw(event)">
+                            <div class="form-group">
+                                <label>Account</label>
+                                <select id="withdrawAccount" class="form-control" required>
+                                    <option value="">Select account...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Amount ($)</label>
+                                <input type="number" id="withdrawAmount" class="form-control" placeholder="0.00"
+                                    min="0.01" step="0.01" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Description</label>
+                                <input type="text" id="withdrawDesc" class="form-control"
+                                    placeholder="e.g. ATM Withdrawal">
+                            </div>
+                            <button type="submit" class="btn btn-danger" style="width: 100%;">Withdraw Funds</button>
+                        </form>
+                    </div>
+
+                    <!-- Transfer Form -->
+                    <div class="txn-form-card">
+                        <h3>🔄 Transfer</h3>
+                        <form onsubmit="handleTransfer(event)">
+                            <div class="form-group">
+                                <label>From Account</label>
+                                <select id="transferFrom" class="form-control" required>
+                                    <option value="">Select sender...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>To Account (ID)</label>
+                                <input type="number" id="transferTo" class="form-control"
+                                    placeholder="Receiver Account ID" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Amount ($)</label>
+                                <input type="number" id="transferAmount" class="form-control" placeholder="0.00"
+                                    min="0.01" step="0.01" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Description</label>
+                                <input type="text" id="transferDesc" class="form-control"
+                                    placeholder="e.g. Rent Payment">
+                            </div>
+                            <button type="submit" class="btn btn-primary" style="width: 100%;">Transfer Funds</button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── HISTORY PAGE ────────────────────────── -->
+            <section id="page-history" class="page-section">
+                <div class="page-header">
+                    <h2>Transaction History</h2>
+                    <p>View all your past transactions.</p>
+                </div>
+
+                <div class="card" style="margin-bottom: 20px;">
+                    <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: end;">
+                        <div class="form-group" style="margin-bottom: 0; flex: 1; min-width: 150px;">
+                            <label>Filter by Type</label>
+                            <select id="historyTypeFilter" class="form-control" onchange="loadHistory()">
+                                <option value="">All Types</option>
+                                <option value="DEPOSIT">Deposits</option>
+                                <option value="WITHDRAWAL">Withdrawals</option>
+                                <option value="TRANSFER">Transfers</option>
+                                <option value="PAYMENT">Payments</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" onclick="loadHistory()">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="table-container" id="historyTable">
+                        <div class="loading-overlay">
+                            <div class="spinner"></div>Loading...
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── ANALYTICS PAGE ──────────────────────── -->
+            <section id="page-analytics" class="page-section">
+                <div class="page-header">
+                    <h2>AI Insights</h2>
+                    <p>Fraud detection scores and predictive spending analytics.</p>
+                </div>
+
+                <div class="grid-2" style="margin-bottom: 20px;">
+                    <div class="card prediction-card">
+                        <div class="card-header"><span class="card-title">Spending Prediction</span></div>
+                        <div class="prediction-value" id="predictedSpending">$0.00</div>
+                        <div class="prediction-label">Predicted Next Month</div>
+                        <div id="spendingTrend"></div>
+                        <div style="margin-top: 12px; color: var(--text-muted); font-size: 0.82rem;">
+                            Avg Monthly: <strong id="avgMonthly">$0.00</strong>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">Spending Summary</span></div>
+                        <div class="kpi-grid" style="margin-top: 8px;">
+                            <div class="kpi-card emerald">
+                                <div class="kpi-value" id="summaryIncome">$0.00</div>
+                                <div class="kpi-label">Total Income</div>
+                            </div>
+                            <div class="kpi-card rose">
+                                <div class="kpi-value" id="summaryExpenses">$0.00</div>
+                                <div class="kpi-label">Total Expenses</div>
+                            </div>
+                            <div class="kpi-card cyan">
+                                <div class="kpi-value" id="summaryNetFlow">$0.00</div>
+                                <div class="kpi-label">Net Flow</div>
+                            </div>
+                            <div class="kpi-card amber">
+                                <div class="kpi-value" id="summaryTxnCount">0</div>
+                                <div class="kpi-label">Transactions</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">AI Risk Scores</span>
+                        <button class="btn btn-secondary btn-sm" onclick="loadRiskScores()">🔄 Refresh</button>
+                    </div>
+                    <div class="table-container" id="riskScoresTable">
+                        <div class="loading-overlay">
+                            <div class="spinner"></div>Loading...
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── PROFILE PAGE ────────────────────────── -->
+            <section id="page-profile" class="page-section">
+                <div class="page-header">
+                    <h2>My Profile</h2>
+                    <p>View and manage your profile information.</p>
+                </div>
+
+                <div class="profile-header" id="profileHeader">
+                    <div class="profile-avatar" id="profileAvatar">U</div>
+                    <div class="profile-info">
+                        <h2 id="profileName">Loading...</h2>
+                        <div class="meta">
+                            <span>📧 <span id="profileEmail">—</span></span>
+                            <span>📱 <span id="profilePhone">—</span></span>
+                            <span>🎂 <span id="profileDOB">—</span></span>
+                            <span id="profileKYC"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="card">
+                        <h3 style="margin-bottom: 16px;">Update Profile</h3>
+                        <form onsubmit="handleProfileUpdate(event)">
+                            <div class="form-group">
+                                <label>Full Name</label>
+                                <input type="text" id="editFullName" class="form-control" placeholder="Your full name">
+                            </div>
+                            <div class="form-group">
+                                <label>Email</label>
+                                <input type="email" id="editEmail" class="form-control" placeholder="you@example.com">
+                            </div>
+                            <div class="form-group">
+                                <label>Phone Number</label>
+                                <input type="tel" id="editPhone" class="form-control" placeholder="+91 XXXXX XXXXX">
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Changes</button>
+                        </form>
+                    </div>
+
+                    <div class="card">
+                        <h3 style="margin-bottom: 16px;">Account Details</h3>
+                        <div style="line-height: 2.2;">
+                            <div><strong style="color: var(--text-muted);">User ID:</strong> <span
+                                    id="profileUserId">—</span></div>
+                            <div><strong style="color: var(--text-muted);">Username:</strong> <span
+                                    id="profileUsername">—</span></div>
+                            <div><strong style="color: var(--text-muted);">Role:</strong> <span
+                                    id="profileRole">—</span></div>
+                            <div><strong style="color: var(--text-muted);">Status:</strong> <span
+                                    id="profileStatus">—</span></div>
+                            <div><strong style="color: var(--text-muted);">Member Since:</strong> <span
+                                    id="profileCreated">—</span></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
