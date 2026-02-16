@@ -10,6 +10,7 @@
 const API = window.location.origin;
 let authToken = localStorage.getItem("authToken");
 let currentUser = null;
+let currentRole = localStorage.getItem("userRole") || null;
 let allAccounts = [];
 let allHistory = [];
 let filteredHistory = [];
@@ -23,6 +24,7 @@ let balanceChart = null;
 let doughnutChart = null;
 let trendChart = null;
 let debounceTimer = null;
+let adminSearchTimers = {};
 
 // ══════════════════════════════════════════════════════════
 // INIT
@@ -44,11 +46,38 @@ function showAuth() {
 function showApp() {
     document.getElementById("authPage").style.display = "none";
     document.getElementById("appPage").style.display = "flex";
-    loadProfile().then(() => {
-        loadDashboard();
+
+    // Detect role from JWT
+    if (authToken) {
+        try {
+            const payload = JSON.parse(atob(authToken.split(".")[1]));
+            currentRole = payload.role || "customer";
+            localStorage.setItem("userRole", currentRole);
+        } catch (_) {
+            currentRole = "customer";
+        }
+    }
+
+    // Show/hide nav based on role
+    const customerNav = document.querySelector(".customer-nav");
+    const adminNav = document.querySelector(".admin-nav");
+    if (currentRole === "employee") {
+        if (customerNav) customerNav.style.display = "none";
+        if (adminNav) adminNav.style.display = "block";
+        document.querySelector(".sidebar").classList.add("admin-mode");
+        loadAdminDashboard();
         startSessionTimer();
-        renderNotifications();
-    });
+        navigateTo("admin-dashboard");
+    } else {
+        if (customerNav) customerNav.style.display = "block";
+        if (adminNav) adminNav.style.display = "none";
+        document.querySelector(".sidebar").classList.remove("admin-mode");
+        loadProfile().then(() => {
+            loadDashboard();
+            startSessionTimer();
+            renderNotifications();
+        });
+    }
 }
 
 // ══════════════════════════════════════════════════════════
@@ -57,11 +86,15 @@ function showApp() {
 function switchAuthTab(tab) {
     document.querySelectorAll(".auth-tab").forEach(t => t.classList.remove("active"));
     document.querySelectorAll(".auth-form").forEach(f => f.classList.remove("active"));
+    const tabs = document.querySelectorAll(".auth-tab");
     if (tab === "login") {
-        document.querySelector(".auth-tab:first-child").classList.add("active");
+        tabs[0].classList.add("active");
         document.getElementById("loginForm").classList.add("active");
+    } else if (tab === "employee") {
+        tabs[1].classList.add("active");
+        document.getElementById("employeeLoginForm").classList.add("active");
     } else {
-        document.querySelector(".auth-tab:last-child").classList.add("active");
+        tabs[2].classList.add("active");
         document.getElementById("registerForm").classList.add("active");
     }
 }
@@ -108,10 +141,34 @@ async function handleRegister(e) {
     }
 }
 
+async function handleEmployeeLogin(e) {
+    e.preventDefault();
+    const btn = document.getElementById("empLoginBtn");
+    btn.classList.add("loading");
+    try {
+        const res = await apiFetch("/auth/employee/login", "POST", {
+            employee_id: document.getElementById("empId").value,
+            password: document.getElementById("empPassword").value,
+        });
+        authToken = res.access_token;
+        localStorage.setItem("authToken", authToken);
+        currentRole = "employee";
+        localStorage.setItem("userRole", "employee");
+        showApp();
+        toast(`Welcome, ${res.username}!`, "success");
+    } catch (err) {
+        toast(err.message, "error");
+    } finally {
+        btn.classList.remove("loading");
+    }
+}
+
 function logout() {
     authToken = null;
     currentUser = null;
+    currentRole = null;
     localStorage.removeItem("authToken");
+    localStorage.removeItem("userRole");
     clearInterval(sessionTimerInterval);
     showAuth();
     toast("Signed out successfully", "info");
@@ -140,6 +197,11 @@ function navigateTo(page) {
         case "history": loadHistory(); break;
         case "analytics": loadAnalytics(); break;
         case "profile": loadProfile(); break;
+        case "admin-dashboard": loadAdminDashboard(); break;
+        case "admin-users": loadAdminUsers(); break;
+        case "admin-accounts": loadAdminAccounts(); break;
+        case "admin-transactions": loadAdminTransactions(); break;
+        case "admin-audit": loadAdminAuditLogs(); break;
     }
 
     // Close sidebar on mobile
@@ -813,4 +875,218 @@ function toast(msg, type = "info") {
     toast.innerHTML = `<span>${msg}</span><button class="toast-close" onclick="this.parentElement.remove()">✕</button>`;
     container.appendChild(toast);
     setTimeout(() => toast.remove(), 5000);
+}
+
+// ══════════════════════════════════════════════════════════
+// ADMIN FUNCTIONS
+// ══════════════════════════════════════════════════════════
+
+async function loadAdminDashboard() {
+    try {
+        const data = await apiFetch("/admin/dashboard");
+        document.getElementById("kpiTotalUsers").textContent = data.total_users ?? "—";
+        document.getElementById("kpiActiveUsers").textContent = data.active_users ?? "—";
+        document.getElementById("kpiTotalAccounts").textContent = data.total_accounts ?? "—";
+        document.getElementById("kpiSystemBalance").textContent = formatCurrency(data.system_balance);
+        document.getElementById("kpiTotalTxns").textContent = data.total_transactions ?? "—";
+        document.getElementById("kpiPendingKyc").textContent = data.pending_kyc ?? "—";
+        document.getElementById("kpiFrozenAcct").textContent = data.frozen_accounts ?? "—";
+        document.getElementById("kpiRecent24h").textContent = data.recent_transactions_24h ?? "—";
+    } catch (err) {
+        toast("Failed to load admin dashboard: " + err.message, "error");
+    }
+}
+
+async function loadAdminUsers() {
+    const search = document.getElementById("adminUserSearch")?.value || "";
+    const kyc = document.getElementById("adminKycFilter")?.value || "";
+    try {
+        let url = "/admin/users?limit=200";
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (kyc) url += `&kyc=${encodeURIComponent(kyc)}`;
+        const users = await apiFetch(url);
+        const tbody = document.getElementById("adminUsersTableBody");
+        if (!users.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center">No users found</td></tr>';
+            return;
+        }
+        tbody.innerHTML = users.map(u => `
+            <tr>
+                <td>${u.user_id}</td>
+                <td><strong>${u.username}</strong></td>
+                <td>${u.full_name || "—"}</td>
+                <td>${u.email || "—"}</td>
+                <td><span class="badge badge-${u.kyc_status === 'verified' ? 'success' : u.kyc_status === 'rejected' ? 'danger' : 'warning'}">${u.kyc_status}</span></td>
+                <td>${u.account_count}</td>
+                <td>${formatCurrency(u.total_balance)}</td>
+                <td>
+                    <button class="btn btn-sm ${u.is_active ? 'btn-success' : 'btn-danger'}" onclick="toggleUserActive(${u.user_id})">
+                        ${u.is_active ? '✓ Active' : '✗ Inactive'}
+                    </button>
+                </td>
+                <td>
+                    <select class="form-control form-control-sm" onchange="updateKYC(${u.user_id}, this.value)" style="min-width:100px;">
+                        <option value="pending" ${u.kyc_status === 'pending' ? 'selected' : ''}>Pending</option>
+                        <option value="verified" ${u.kyc_status === 'verified' ? 'selected' : ''}>Verified</option>
+                        <option value="rejected" ${u.kyc_status === 'rejected' ? 'selected' : ''}>Rejected</option>
+                    </select>
+                </td>
+            </tr>
+        `).join("");
+    } catch (err) {
+        toast("Failed to load users: " + err.message, "error");
+    }
+}
+
+async function loadAdminAccounts() {
+    const search = document.getElementById("adminAcctSearch")?.value || "";
+    const status = document.getElementById("adminAcctStatusFilter")?.value || "";
+    try {
+        let url = "/admin/accounts?limit=200";
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (status) url += `&status=${encodeURIComponent(status)}`;
+        const accounts = await apiFetch(url);
+        const tbody = document.getElementById("adminAcctTableBody");
+        if (!accounts.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center">No accounts found</td></tr>';
+            return;
+        }
+        tbody.innerHTML = accounts.map(a => `
+            <tr>
+                <td><strong>${a.account_number}</strong></td>
+                <td>${a.account_type}</td>
+                <td>${a.full_name || a.username}</td>
+                <td>${formatCurrency(a.current_balance)}</td>
+                <td><span class="badge badge-${a.status === 'active' ? 'success' : a.status === 'frozen' ? 'warning' : 'danger'}">${a.status}</span></td>
+                <td>${formatDate(a.created_at)}</td>
+                <td>
+                    ${a.status !== 'closed' ? `
+                        <button class="btn btn-sm ${a.status === 'frozen' ? 'btn-success' : 'btn-warning'}" onclick="adminFreezeAccount(${a.account_id})">
+                            ${a.status === 'frozen' ? '🔓 Unfreeze' : '🔒 Freeze'}
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="adminCloseAccount(${a.account_id})" style="margin-left:4px;">❌ Close</button>
+                    ` : '<span class="text-muted">Closed</span>'}
+                </td>
+            </tr>
+        `).join("");
+    } catch (err) {
+        toast("Failed to load accounts: " + err.message, "error");
+    }
+}
+
+async function loadAdminTransactions() {
+    const search = document.getElementById("adminTxnSearch")?.value || "";
+    const type = document.getElementById("adminTxnTypeFilter")?.value || "";
+    try {
+        let url = "/admin/transactions?limit=200";
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (type) url += `&type=${encodeURIComponent(type)}`;
+        const txns = await apiFetch(url);
+        const tbody = document.getElementById("adminTxnTableBody");
+        if (!txns.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center">No transactions found</td></tr>';
+            return;
+        }
+        tbody.innerHTML = txns.map(t => `
+            <tr>
+                <td style="font-family:monospace;font-size:0.8em;">${(t.reference_id || '—').substring(0, 12)}…</td>
+                <td>${formatDate(t.transaction_date)}</td>
+                <td><span class="badge badge-${t.type === 'DEPOSIT' ? 'success' : t.type === 'WITHDRAWAL' ? 'danger' : 'info'}">${t.type}</span></td>
+                <td>${t.full_name || t.username}</td>
+                <td>${t.account_number}</td>
+                <td>${formatCurrency(t.amount)}</td>
+                <td>${formatCurrency(t.balance_after)}</td>
+                <td><span class="badge badge-${t.status === 'completed' ? 'success' : 'warning'}">${t.status}</span></td>
+            </tr>
+        `).join("");
+    } catch (err) {
+        toast("Failed to load transactions: " + err.message, "error");
+    }
+}
+
+async function loadAdminAuditLogs() {
+    try {
+        const logs = await apiFetch("/admin/audit-logs?limit=200");
+        const tbody = document.getElementById("adminAuditTableBody");
+        if (!logs.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center">No audit logs found</td></tr>';
+            return;
+        }
+        tbody.innerHTML = logs.map(l => `
+            <tr>
+                <td>${l.log_id}</td>
+                <td>${l.entity_type || "—"}</td>
+                <td>${l.action_type || "—"}</td>
+                <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;">${l.old_value || "—"}</td>
+                <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;">${l.new_value || "—"}</td>
+                <td>${l.performed_by || "—"}</td>
+                <td>${l.ip_address || "—"}</td>
+                <td>${formatDate(l.created_at)}</td>
+            </tr>
+        `).join("");
+    } catch (err) {
+        toast("Failed to load audit logs: " + err.message, "error");
+    }
+}
+
+// ── Admin Actions ────────────────────────────────────────
+
+async function toggleUserActive(userId) {
+    try {
+        const res = await apiFetch(`/admin/users/${userId}/toggle-active`, "PATCH");
+        toast(res.message, "success");
+        loadAdminUsers();
+        loadAdminDashboard();
+    } catch (err) {
+        toast(err.message, "error");
+    }
+}
+
+async function updateKYC(userId, status) {
+    try {
+        const res = await apiFetch(`/admin/users/${userId}/kyc?status=${encodeURIComponent(status)}`, "PATCH");
+        toast(res.message, "success");
+        loadAdminDashboard();
+    } catch (err) {
+        toast(err.message, "error");
+    }
+}
+
+async function adminFreezeAccount(accountId) {
+    try {
+        const res = await apiFetch(`/admin/accounts/${accountId}/freeze`, "PATCH");
+        toast(res.message, "success");
+        loadAdminAccounts();
+        loadAdminDashboard();
+    } catch (err) {
+        toast(err.message, "error");
+    }
+}
+
+async function adminCloseAccount(accountId) {
+    if (!confirm("Are you sure you want to close this account? This action cannot be undone.")) return;
+    try {
+        const res = await apiFetch(`/admin/accounts/${accountId}/close`, "PATCH");
+        toast(res.message, "success");
+        loadAdminAccounts();
+        loadAdminDashboard();
+    } catch (err) {
+        toast(err.message, "error");
+    }
+}
+
+// ── Admin Search Debounce ────────────────────────────────
+function debounceAdminUserSearch() {
+    clearTimeout(adminSearchTimers.users);
+    adminSearchTimers.users = setTimeout(() => loadAdminUsers(), 400);
+}
+
+function debounceAdminAcctSearch() {
+    clearTimeout(adminSearchTimers.accounts);
+    adminSearchTimers.accounts = setTimeout(() => loadAdminAccounts(), 400);
+}
+
+function debounceAdminTxnSearch() {
+    clearTimeout(adminSearchTimers.transactions);
+    adminSearchTimers.transactions = setTimeout(() => loadAdminTransactions(), 400);
 }
