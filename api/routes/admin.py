@@ -257,6 +257,83 @@ def update_kyc_status(user_id: int, status: str = Query(..., pattern="^(pending|
         if conn.is_connected():
             conn.close()
 
+# ── Account Creation (Admin Only) ────────────────────────
+
+@router.post("/accounts/create", dependencies=[Depends(_require_employee())])
+def admin_create_account(
+    data: dict,
+):
+    """
+    Create a bank account for a user.
+    Requires: user KYC verified, user has no existing account.
+    """
+    user_id = data.get("user_id")
+    account_type = data.get("account_type", "savings")
+    currency = data.get("currency", "INR")
+
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    if account_type not in ("savings", "checking", "wallet"):
+        raise HTTPException(status_code=400, detail="Invalid account type")
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor(dictionary=True)
+
+        # 1. Check user exists and KYC status
+        cursor.execute(
+            "SELECT user_id, username, full_name, kyc_status, is_active FROM users WHERE user_id = %s",
+            (user_id,),
+        )
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if not user["is_active"]:
+            raise HTTPException(status_code=400, detail="User account is deactivated")
+
+        if user["kyc_status"] != "verified":
+            raise HTTPException(
+                status_code=400,
+                detail=f"User KYC status is '{user['kyc_status']}'. Only verified users can have accounts.",
+            )
+
+        # 2. Check user doesn't already have an account
+        cursor.execute(
+            "SELECT account_id FROM accounts WHERE user_id = %s AND status != 'closed'",
+            (user_id,),
+        )
+        existing = cursor.fetchone()
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail="User already has an active account. Only one account per user is allowed.",
+            )
+
+        # 3. Create the account via stored procedure
+        cursor2 = conn.cursor()
+        args = (user_id, account_type, currency, 0, "")
+        result = cursor2.callproc("sp_create_account", args)
+        conn.commit()
+
+        account_id = result[3]
+        account_number = result[4]
+        cursor2.close()
+        cursor.close()
+
+        return MessageResponse(
+            message=f"Account {account_number} created for {user['full_name']} ({user['username']})",
+            data={"account_id": account_id, "account_number": account_number, "user_id": user_id},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn.is_connected():
+            conn.close()
+
 
 # ── Account Management ───────────────────────────────────
 

@@ -12,32 +12,9 @@ from typing import List
 
 router = APIRouter(prefix="/accounts", tags=["Accounts"])
 
+# NOTE: Account creation has been moved to admin-only (POST /admin/accounts/create).
+# Customers cannot create their own accounts.
 
-@router.post("/", response_model=MessageResponse)
-def create_account(data: AccountCreate, current_user: dict = Depends(get_current_user)):
-    """Create a new bank account for the logged-in user."""
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-
-        # Call the stored procedure
-        args = (current_user["user_id"], data.account_type.value, data.currency, 0, "")
-        result = cursor.callproc("sp_create_account", args)
-        conn.commit()
-
-        account_id = result[3]   # OUT p_account_id
-        account_num = result[4]  # OUT p_account_number
-        cursor.close()
-
-        return MessageResponse(
-            message=f"Account created successfully",
-            data={"account_id": account_id, "account_number": account_num},
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if conn.is_connected():
-            conn.close()
 
 
 @router.get("/", response_model=List[AccountResponse])

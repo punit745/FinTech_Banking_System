@@ -324,22 +324,7 @@ async function loadAccounts() {
     } catch (err) { toast("Failed to load accounts", "error"); }
 }
 
-function showCreateAccountForm() { document.getElementById("createAccountForm").style.display = "block"; }
-function hideCreateAccountForm() { document.getElementById("createAccountForm").style.display = "none"; }
-
-async function handleCreateAccount(e) {
-    e.preventDefault();
-    try {
-        await apiFetch("/accounts/", "POST", {
-            account_type: document.getElementById("newAccountType").value,
-            currency: document.getElementById("newAccountCurrency").value,
-        });
-        toast("Account created successfully!", "success");
-        addNotification("✅ New account opened", "success");
-        hideCreateAccountForm();
-        loadAccounts();
-    } catch (err) { toast(err.message, "error"); }
-}
+// Account creation is admin-only — see adminCreateAccount in admin functions below
 
 async function viewAccountDetail(accountId) {
     const panel = document.getElementById("accountDetailPanel");
@@ -1072,6 +1057,28 @@ async function adminCloseAccount(accountId) {
         loadAdminDashboard();
     } catch (err) {
         toast(err.message, "error");
+    }
+}
+
+async function adminCreateAccount(e) {
+    e.preventDefault();
+    const btn = document.getElementById("adminCreateAcctBtn");
+    btn.classList.add("loading");
+    try {
+        const res = await apiFetch("/admin/accounts/create", "POST", {
+            user_id: parseInt(document.getElementById("adminNewAcctUserId").value),
+            account_type: document.getElementById("adminNewAcctType").value,
+            currency: document.getElementById("adminNewAcctCurrency").value,
+        });
+        toast(res.message, "success");
+        addNotification("✅ " + res.message, "success");
+        document.getElementById("adminNewAcctUserId").value = "";
+        loadAdminAccounts();
+        loadAdminDashboard();
+    } catch (err) {
+        toast(err.message, "error");
+    } finally {
+        btn.classList.remove("loading");
     }
 }
 

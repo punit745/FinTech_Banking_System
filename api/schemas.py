@@ -47,6 +47,12 @@ class EmployeeLogin(BaseModel):
     password: str = Field(..., min_length=6, max_length=128)
 
 
+class AdminAccountCreate(BaseModel):
+    user_id: int
+    account_type: str = Field(..., pattern="^(savings|checking|wallet)$")
+    currency: str = Field(default="INR", max_length=3)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

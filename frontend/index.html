@@ -276,40 +276,11 @@
                 <div class="page-header">
                     <div>
                         <h2>My Accounts</h2>
-                        <p>Open, manage, freeze, or close your bank accounts.</p>
+                        <p>View and manage your bank account.</p>
                     </div>
                 </div>
                 <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
-                    <button class="btn btn-primary" onclick="showCreateAccountForm()">＋ Open New Account</button>
                     <button class="btn btn-secondary" onclick="loadAccounts()">🔄 Refresh</button>
-                </div>
-                <!-- Create Account Form (collapsible) -->
-                <div id="createAccountForm" class="card" style="display:none;margin-bottom:20px;">
-                    <h3 style="margin-bottom:16px;">Open New Bank Account</h3>
-                    <form onsubmit="handleCreateAccount(event)">
-                        <div class="grid-2">
-                            <div class="form-group"><label>Account Type</label>
-                                <select id="newAccountType" class="form-control" required>
-                                    <option value="savings">Savings Account</option>
-                                    <option value="checking">Checking Account</option>
-                                    <option value="wallet">Digital Wallet</option>
-                                </select>
-                            </div>
-                            <div class="form-group"><label>Currency</label>
-                                <select id="newAccountCurrency" class="form-control">
-                                    <option value="INR" selected>INR — Indian Rupee</option>
-                                    <option value="USD">USD — US Dollar</option>
-                                    <option value="EUR">EUR — Euro</option>
-                                    <option value="GBP">GBP — British Pound</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div style="display:flex;gap:10px;margin-top:8px;">
-                            <button type="submit" class="btn btn-success">Create Account</button>
-                            <button type="button" class="btn btn-secondary"
-                                onclick="hideCreateAccountForm()">Cancel</button>
-                        </div>
-                    </form>
                 </div>
                 <!-- Account list -->
                 <div id="accountsList" class="kpi-grid">
@@ -731,7 +702,39 @@
             <section id="page-admin-accounts" class="page-section">
                 <div class="page-header">
                     <h2>Accounts Management</h2>
-                    <p>Oversee all bank accounts</p>
+                    <p>Create accounts for verified users & oversee all bank accounts</p>
+                </div>
+                <!-- Create Account for User (Admin Only) -->
+                <div class="card" style="margin-bottom:24px;">
+                    <h3 style="margin-bottom:12px;">➕ Create Account for User</h3>
+                    <p style="color:var(--text-muted);font-size:0.82rem;margin-bottom:16px;">Only KYC-verified users are
+                        eligible. One account per user.</p>
+                    <form onsubmit="adminCreateAccount(event)">
+                        <div class="grid-3">
+                            <div class="form-group"><label>User ID</label>
+                                <input type="number" id="adminNewAcctUserId" class="form-control"
+                                    placeholder="Enter User ID" required min="1">
+                            </div>
+                            <div class="form-group"><label>Account Type</label>
+                                <select id="adminNewAcctType" class="form-control" required>
+                                    <option value="savings">Savings Account</option>
+                                    <option value="checking">Checking Account</option>
+                                    <option value="wallet">Digital Wallet</option>
+                                </select>
+                            </div>
+                            <div class="form-group"><label>Currency</label>
+                                <select id="adminNewAcctCurrency" class="form-control">
+                                    <option value="INR" selected>INR — Indian Rupee</option>
+                                    <option value="USD">USD — US Dollar</option>
+                                    <option value="EUR">EUR — Euro</option>
+                                    <option value="GBP">GBP — British Pound</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-success" style="margin-top:8px;" id="adminCreateAcctBtn">
+                            <span class="btn-spinner"></span><span class="btn-text">Create Account</span>
+                        </button>
+                    </form>
                 </div>
                 <div class="card" style="margin-bottom:24px;">
                     <div class="admin-toolbar">
