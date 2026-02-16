@@ -25,14 +25,16 @@ from config import CORS_ORIGINS, API_HOST, API_PORT
 from database import init_pool
 from auth import (
     register_user, authenticate_user, create_access_token,
+    authenticate_employee, create_employee_token,
     get_current_user, get_user_profile,
 )
-from schemas import UserRegister, UserLogin, TokenResponse, MessageResponse
+from schemas import UserRegister, UserLogin, EmployeeLogin, TokenResponse, MessageResponse
 
 from routes.users import router as users_router
 from routes.accounts import router as accounts_router
 from routes.transactions import router as transactions_router
 from routes.analytics import router as analytics_router
+from routes.admin import router as admin_router
 
 
 # ── App Instance ───────────────────────────────────────────
@@ -110,11 +112,29 @@ def get_me(current_user: dict = Depends(get_current_user)):
     return get_user_profile(current_user["user_id"])
 
 
+# ── Employee Auth Route ───────────────────────────────
+
+@app.post("/auth/employee/login", response_model=TokenResponse, tags=["Auth"])
+def employee_login(data: EmployeeLogin):
+    """Authenticate an employee with Employee ID and password."""
+    employee = authenticate_employee(data.employee_id, data.password)
+    token = create_employee_token(
+        employee["employee_id"], employee["full_name"], employee["department"]
+    )
+    return TokenResponse(
+        access_token=token,
+        user_id=0,
+        username=employee["full_name"],
+        role="employee",
+    )
+
+
 # ── Register Routers ──────────────────────────────────────
 app.include_router(users_router)
 app.include_router(accounts_router)
 app.include_router(transactions_router)
 app.include_router(analytics_router)
+app.include_router(admin_router)
 
 
 # ── Health Check ──────────────────────────────────────────

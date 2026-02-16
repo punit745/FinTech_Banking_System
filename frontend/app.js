@@ -1,225 +1,100 @@
 /**
- * FinTech Banking System — Frontend Application v2.0
- * ====================================================
- * Dynamic SPA: animated counters, confirmation/receipt modals,
- * search & pagination, CSV export, auto-refresh, live health ping.
+ * FinTech Banking System — Application Logic
+ * =============================================
+ * Handles auth, navigation, dashboard, accounts, transfers,
+ * transactions, history, analytics, profile, beneficiaries,
+ * notifications, session timer, and theme toggle.
  */
 
-// ── Config ────────────────────────────────────────────────
-const API_BASE = window.location.origin;
-let authToken = localStorage.getItem("fintech_token") || null;
-let currentUser = JSON.parse(localStorage.getItem("fintech_user") || "null");
-
-// Chart instances
-let balanceChartInstance = null;
-let spendingDoughnutInstance = null;
-let monthlyTrendInstance = null;
-
-// Auto-refresh
-let autoRefreshInterval = null;
-let autoRefreshActive = false;
-
-// Connection health
-let healthCheckInterval = null;
-let isOnline = true;
-
-// History state
-let allTransactions = [];
-let filteredTransactions = [];
-let currentPage = 1;
-const PAGE_SIZE = 20;
-
-// Pending confirmed action
+// ── Config ─────────────────────────────────────────────
+const API = window.location.origin;
+let authToken = localStorage.getItem("authToken");
+let currentUser = null;
+let currentRole = localStorage.getItem("userRole") || null;
+let allAccounts = [];
+let allHistory = [];
+let filteredHistory = [];
+let historyPage = 1;
+const ITEMS_PER_PAGE = 20;
 let pendingAction = null;
+let notifications = JSON.parse(localStorage.getItem("notifications") || "[]");
+let sessionStart = Date.now();
+let sessionTimerInterval = null;
+let balanceChart = null;
+let doughnutChart = null;
+let trendChart = null;
+let debounceTimer = null;
+let adminSearchTimers = {};
 
-// ── Init ──────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", () => {
-    if (authToken && currentUser) {
+    loadTheme();
+    if (authToken) {
         showApp();
     } else {
         showAuth();
     }
 });
 
-// ══════════════════════════════════════════════════════════
-//  UTILITY FUNCTIONS
-// ══════════════════════════════════════════════════════════
-
-async function apiFetch(endpoint, options = {}) {
-    const headers = { "Content-Type": "application/json", ...options.headers };
-    if (authToken) {
-        headers["Authorization"] = `Bearer ${authToken}`;
-    }
-    try {
-        const resp = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-        if (resp.status === 401) {
-            logout();
-            throw new Error("Session expired. Please log in again.");
-        }
-        const data = await resp.json();
-        if (!resp.ok) {
-            throw new Error(data.detail || data.message || "Request failed");
-        }
-        return data;
-    } catch (err) {
-        if (err.message.includes("Failed to fetch")) {
-            throw new Error("Cannot connect to server. Is the API running?");
-        }
-        throw err;
-    }
-}
-
-function formatCurrency(amount) {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
-}
-
-function getGreeting() {
-    const hour = new Date().getHours();
-    if (hour < 12) return "Good Morning";
-    if (hour < 17) return "Good Afternoon";
-    return "Good Evening";
-}
-
-function formatDateTime() {
-    return new Date().toLocaleDateString("en-US", {
-        weekday: "long", year: "numeric", month: "long", day: "numeric"
-    }) + " · " + new Date().toLocaleTimeString("en-US", {
-        hour: "2-digit", minute: "2-digit"
-    });
-}
-
-// ── Toast Notifications ──────────────────────────────────
-
-function showToast(message, type = "info") {
-    const container = document.getElementById("toastContainer");
-    const icons = { success: "✅", error: "❌", info: "ℹ️" };
-    const toast = document.createElement("div");
-    toast.className = `toast ${type}`;
-    toast.innerHTML = `
-        <span class="toast-icon">${icons[type]}</span>
-        <span class="toast-message">${message}</span>
-        <button class="toast-close" onclick="this.parentElement.remove()">✕</button>
-    `;
-    container.appendChild(toast);
-    setTimeout(() => toast.remove(), 5000);
-}
-
-// ── Animated Counter ─────────────────────────────────────
-
-function animateValue(element, start, end, duration, isCurrency = true) {
-    const startTime = performance.now();
-    const update = (currentTime) => {
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        // Ease out cubic
-        const eased = 1 - Math.pow(1 - progress, 3);
-        const currentVal = start + (end - start) * eased;
-        element.textContent = isCurrency ? formatCurrency(currentVal) : Math.round(currentVal).toString();
-        if (progress < 1) {
-            requestAnimationFrame(update);
-        } else {
-            element.classList.add("flash");
-            setTimeout(() => element.classList.remove("flash"), 600);
-        }
-    };
-    requestAnimationFrame(update);
-}
-
-// ── Skeleton Helpers ─────────────────────────────────────
-
-function showSkeletonCards(container, count = 4) {
-    let html = "";
-    for (let i = 0; i < count; i++) {
-        html += `
-            <div class="skeleton-card">
-                <div class="skeleton skeleton-circle"></div>
-                <div class="skeleton skeleton-line lg w-60"></div>
-                <div class="skeleton skeleton-line w-40"></div>
-            </div>
-        `;
-    }
-    container.innerHTML = html;
-}
-
-// ── Modal System ─────────────────────────────────────────
-
-function openModal(id) {
-    document.getElementById(id).classList.add("active");
-}
-
-function closeModal(id) {
-    document.getElementById(id).classList.remove("active");
-}
-
-function showConfirmation(title, subtitle, details, action) {
-    document.getElementById("confirmTitle").textContent = title;
-    document.getElementById("confirmSubtitle").textContent = subtitle;
-
-    let html = "";
-    for (const [label, value] of Object.entries(details)) {
-        const cls = label === "Amount" ? "total" : "";
-        html += `<div class="confirm-row ${cls}"><span class="label">${label}</span><span class="value">${value}</span></div>`;
-    }
-    document.getElementById("confirmDetails").innerHTML = html;
-    pendingAction = action;
-    openModal("confirmModal");
-}
-
-async function executeConfirmedAction() {
-    if (!pendingAction) return;
-    const btn = document.getElementById("confirmActionBtn");
-    btn.classList.add("loading");
-    btn.disabled = true;
-
-    try {
-        await pendingAction();
-    } catch (err) {
-        showToast(err.message, "error");
-    } finally {
-        btn.classList.remove("loading");
-        btn.disabled = false;
-        closeModal("confirmModal");
-        pendingAction = null;
-    }
-}
-
-function showReceipt(amount, details) {
-    document.getElementById("receiptAmount").textContent = formatCurrency(amount);
-    let html = "";
-    for (const [label, value] of Object.entries(details)) {
-        html += `<div class="receipt-row"><span class="label">${label}</span><span class="value">${value}</span></div>`;
-    }
-    document.getElementById("receiptDetails").innerHTML = html;
-    openModal("receiptModal");
-}
-
-// ══════════════════════════════════════════════════════════
-//  AUTH FUNCTIONS
-// ══════════════════════════════════════════════════════════
-
 function showAuth() {
     document.getElementById("authPage").style.display = "flex";
     document.getElementById("appPage").style.display = "none";
-    stopAutoRefresh();
-    stopHealthCheck();
 }
 
 function showApp() {
     document.getElementById("authPage").style.display = "none";
     document.getElementById("appPage").style.display = "flex";
-    updateSidebarUser();
-    startHealthCheck();
-    navigateTo("dashboard");
+
+    // Detect role from JWT
+    if (authToken) {
+        try {
+            const payload = JSON.parse(atob(authToken.split(".")[1]));
+            currentRole = payload.role || "customer";
+            localStorage.setItem("userRole", currentRole);
+        } catch (_) {
+            currentRole = "customer";
+        }
+    }
+
+    // Show/hide nav based on role
+    const customerNav = document.querySelector(".customer-nav");
+    const adminNav = document.querySelector(".admin-nav");
+    if (currentRole === "employee") {
+        if (customerNav) customerNav.style.display = "none";
+        if (adminNav) adminNav.style.display = "block";
+        document.querySelector(".sidebar").classList.add("admin-mode");
+        loadAdminDashboard();
+        startSessionTimer();
+        navigateTo("admin-dashboard");
+    } else {
+        if (customerNav) customerNav.style.display = "block";
+        if (adminNav) adminNav.style.display = "none";
+        document.querySelector(".sidebar").classList.remove("admin-mode");
+        loadProfile().then(() => {
+            loadDashboard();
+            startSessionTimer();
+            renderNotifications();
+        });
+    }
 }
 
+// ══════════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════════
 function switchAuthTab(tab) {
     document.querySelectorAll(".auth-tab").forEach(t => t.classList.remove("active"));
     document.querySelectorAll(".auth-form").forEach(f => f.classList.remove("active"));
+    const tabs = document.querySelectorAll(".auth-tab");
     if (tab === "login") {
-        document.querySelectorAll(".auth-tab")[0].classList.add("active");
+        tabs[0].classList.add("active");
         document.getElementById("loginForm").classList.add("active");
+    } else if (tab === "employee") {
+        tabs[1].classList.add("active");
+        document.getElementById("employeeLoginForm").classList.add("active");
     } else {
-        document.querySelectorAll(".auth-tab")[1].classList.add("active");
+        tabs[2].classList.add("active");
         document.getElementById("registerForm").classList.add("active");
     }
 }
@@ -228,27 +103,19 @@ async function handleLogin(e) {
     e.preventDefault();
     const btn = document.getElementById("loginBtn");
     btn.classList.add("loading");
-    btn.disabled = true;
-
     try {
-        const data = await apiFetch("/auth/login", {
-            method: "POST",
-            body: JSON.stringify({
-                username: document.getElementById("loginUsername").value,
-                password: document.getElementById("loginPassword").value,
-            }),
+        const res = await apiFetch("/auth/login", "POST", {
+            username: document.getElementById("loginUsername").value,
+            password: document.getElementById("loginPassword").value,
         });
-        authToken = data.access_token;
-        currentUser = { user_id: data.user_id, username: data.username, role: data.role };
-        localStorage.setItem("fintech_token", authToken);
-        localStorage.setItem("fintech_user", JSON.stringify(currentUser));
-        showToast(`Welcome back, ${data.username}!`, "success");
+        authToken = res.access_token;
+        localStorage.setItem("authToken", authToken);
         showApp();
+        toast("Welcome back!", "success");
     } catch (err) {
-        showToast(err.message, "error");
+        toast(err.message, "error");
     } finally {
         btn.classList.remove("loading");
-        btn.disabled = false;
     }
 }
 
@@ -256,139 +123,90 @@ async function handleRegister(e) {
     e.preventDefault();
     const btn = document.getElementById("registerBtn");
     btn.classList.add("loading");
-    btn.disabled = true;
-
     try {
-        await apiFetch("/auth/register", {
-            method: "POST",
-            body: JSON.stringify({
-                username: document.getElementById("regUsername").value,
-                full_name: document.getElementById("regFullName").value,
-                email: document.getElementById("regEmail").value,
-                phone_number: document.getElementById("regPhone").value || null,
-                date_of_birth: document.getElementById("regDOB").value,
-                password: document.getElementById("regPassword").value,
-            }),
+        const res = await apiFetch("/auth/register", "POST", {
+            username: document.getElementById("regUsername").value,
+            full_name: document.getElementById("regFullName").value,
+            email: document.getElementById("regEmail").value,
+            phone_number: document.getElementById("regPhone").value || null,
+            date_of_birth: document.getElementById("regDOB").value,
+            password: document.getElementById("regPassword").value,
         });
-        showToast("Account created! You can now sign in.", "success");
+        toast("Account created! Please sign in.", "success");
         switchAuthTab("login");
-        document.getElementById("loginUsername").value = document.getElementById("regUsername").value;
     } catch (err) {
-        showToast(err.message, "error");
+        toast(err.message, "error");
     } finally {
         btn.classList.remove("loading");
-        btn.disabled = false;
+    }
+}
+
+async function handleEmployeeLogin(e) {
+    e.preventDefault();
+    const btn = document.getElementById("empLoginBtn");
+    btn.classList.add("loading");
+    try {
+        const res = await apiFetch("/auth/employee/login", "POST", {
+            employee_id: document.getElementById("empId").value,
+            password: document.getElementById("empPassword").value,
+        });
+        authToken = res.access_token;
+        localStorage.setItem("authToken", authToken);
+        currentRole = "employee";
+        localStorage.setItem("userRole", "employee");
+        showApp();
+        toast(`Welcome, ${res.username}!`, "success");
+    } catch (err) {
+        toast(err.message, "error");
+    } finally {
+        btn.classList.remove("loading");
     }
 }
 
 function logout() {
     authToken = null;
     currentUser = null;
-    localStorage.removeItem("fintech_token");
-    localStorage.removeItem("fintech_user");
+    currentRole = null;
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("userRole");
+    clearInterval(sessionTimerInterval);
     showAuth();
-    showToast("You have been signed out.", "info");
-}
-
-function updateSidebarUser() {
-    if (!currentUser) return;
-    const initials = currentUser.username.substring(0, 2).toUpperCase();
-    document.getElementById("userAvatarInitials").textContent = initials;
-    document.getElementById("sidebarUserName").textContent = currentUser.username;
-    document.getElementById("sidebarUserRole").textContent = currentUser.role;
+    toast("Signed out successfully", "info");
 }
 
 // ══════════════════════════════════════════════════════════
-//  CONNECTION HEALTH CHECK
+// NAVIGATION
 // ══════════════════════════════════════════════════════════
-
-function startHealthCheck() {
-    checkHealth();
-    healthCheckInterval = setInterval(checkHealth, 15000);
-}
-
-function stopHealthCheck() {
-    if (healthCheckInterval) clearInterval(healthCheckInterval);
-}
-
-async function checkHealth() {
-    try {
-        await apiFetch("/health");
-        setOnlineStatus(true);
-    } catch {
-        setOnlineStatus(false);
-    }
-}
-
-function setOnlineStatus(online) {
-    isOnline = online;
-    const dot = document.getElementById("connectionDot");
-    const text = document.getElementById("connectionText");
-    if (online) {
-        dot.classList.remove("offline");
-        text.textContent = "Connected";
-    } else {
-        dot.classList.add("offline");
-        text.textContent = "Offline";
-    }
-}
-
-// ══════════════════════════════════════════════════════════
-//  AUTO-REFRESH
-// ══════════════════════════════════════════════════════════
-
-function toggleAutoRefresh() {
-    autoRefreshActive = !autoRefreshActive;
-    const btn = document.getElementById("autoRefreshBtn");
-    const label = document.getElementById("autoRefreshLabel");
-
-    if (autoRefreshActive) {
-        btn.classList.add("active");
-        label.textContent = "Live (30s)";
-        autoRefreshInterval = setInterval(() => {
-            loadDashboard(true); // silent refresh
-        }, 30000);
-        showToast("Auto-refresh enabled (30s)", "info");
-    } else {
-        stopAutoRefresh();
-        showToast("Auto-refresh disabled", "info");
-    }
-}
-
-function stopAutoRefresh() {
-    autoRefreshActive = false;
-    if (autoRefreshInterval) clearInterval(autoRefreshInterval);
-    const btn = document.getElementById("autoRefreshBtn");
-    const label = document.getElementById("autoRefreshLabel");
-    if (btn) btn.classList.remove("active");
-    if (label) label.textContent = "Auto-Refresh";
-}
-
-// ══════════════════════════════════════════════════════════
-//  NAVIGATION
-// ══════════════════════════════════════════════════════════
-
 function navigateTo(page) {
-    document.querySelectorAll(".nav-item").forEach(item => {
-        item.classList.toggle("active", item.dataset.page === page);
-    });
+    // Update nav
+    document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+    const navItem = document.querySelector(`.nav-item[data-page="${page}"]`);
+    if (navItem) navItem.classList.add("active");
 
-    document.querySelectorAll(".page-section").forEach(s => s.classList.remove("active"));
-    const target = document.getElementById(`page-${page}`);
-    if (target) target.classList.add("active");
+    // Update pages
+    document.querySelectorAll(".page-section").forEach(p => p.classList.remove("active"));
+    const pageEl = document.getElementById(`page-${page}`);
+    if (pageEl) pageEl.classList.add("active");
 
-    // Close mobile sidebar
-    document.getElementById("sidebar").classList.remove("open");
-    document.getElementById("sidebarOverlay").classList.remove("active");
-
+    // Load data for specific pages
     switch (page) {
         case "dashboard": loadDashboard(); break;
         case "accounts": loadAccounts(); break;
-        case "transactions": loadTransactionDropdowns(); break;
+        case "transfer": loadTransferSelects(); loadBeneficiaries(); break;
+        case "transactions": loadTransactionSelects(); break;
         case "history": loadHistory(); break;
         case "analytics": loadAnalytics(); break;
         case "profile": loadProfile(); break;
+        case "admin-dashboard": loadAdminDashboard(); break;
+        case "admin-users": loadAdminUsers(); break;
+        case "admin-accounts": loadAdminAccounts(); break;
+        case "admin-transactions": loadAdminTransactions(); break;
+        case "admin-audit": loadAdminAuditLogs(); break;
     }
+
+    // Close sidebar on mobile
+    document.getElementById("sidebar").classList.remove("open");
+    document.getElementById("sidebarOverlay").classList.remove("active");
 }
 
 function toggleSidebar() {
@@ -397,608 +215,425 @@ function toggleSidebar() {
 }
 
 // ══════════════════════════════════════════════════════════
-//  DASHBOARD
+// DASHBOARD
 // ══════════════════════════════════════════════════════════
-
-async function loadDashboard(silent = false) {
-    // Update greeting
-    const greetEl = document.getElementById("dashboardGreeting");
-    const dateEl = document.getElementById("dashboardDateTime");
-    if (greetEl) greetEl.textContent = `${getGreeting()}, ${currentUser?.username || "User"} 👋`;
-    if (dateEl) dateEl.textContent = formatDateTime();
-
+async function loadDashboard() {
     try {
-        const [accounts, summary, history] = await Promise.all([
+        const [accounts, summary] = await Promise.all([
             apiFetch("/accounts/"),
             apiFetch("/analytics/spending-summary").catch(() => null),
-            apiFetch("/transactions/history?limit=5").catch(() => []),
         ]);
-
-        // Animated KPIs
-        const totalBalance = accounts.reduce((sum, a) => sum + a.current_balance, 0);
-        const balEl = document.getElementById("kpiTotalBalance");
-        const countEl = document.getElementById("kpiAccountCount");
-
-        animateValue(balEl, 0, totalBalance, 1200, true);
-        animateValue(countEl, 0, accounts.length, 800, false);
+        allAccounts = accounts;
+        // Update KPIs
+        const totalBalance = accounts.reduce((s, a) => s + a.current_balance, 0);
+        animateKPI("kpiTotalBalance", `$${totalBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })}`);
+        animateKPI("kpiAccountCount", accounts.length.toString());
 
         if (summary) {
-            animateValue(document.getElementById("kpiTotalIncome"), 0, summary.total_income, 1000, true);
-            animateValue(document.getElementById("kpiTotalExpenses"), 0, summary.total_expenses, 1000, true);
+            animateKPI("kpiTotalIncome", `$${summary.total_income.toLocaleString("en-US", { minimumFractionDigits: 2 })}`);
+            animateKPI("kpiTotalExpenses", `$${summary.total_expenses.toLocaleString("en-US", { minimumFractionDigits: 2 })}`);
         }
 
-        // Charts
+        // Greeting
+        const hour = new Date().getHours();
+        const greeting = hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
+        document.getElementById("dashboardGreeting").textContent = `${greeting}, ${currentUser?.full_name?.split(" ")[0] || "User"} 👋`;
+
+        // Balance chart
         renderBalanceChart(accounts);
-        renderSpendingDoughnut(history);
-        renderRecentActivity(history);
-
-        if (!silent) {
-            // No toast on normal load
-        }
+        // Doughnut
+        renderSpendingDoughnut(summary);
+        // Recent activity
+        loadRecentActivity();
     } catch (err) {
-        if (!silent) showToast("Failed to load dashboard: " + err.message, "error");
+        toast("Failed to load dashboard", "error");
     }
+}
+
+function animateKPI(id, target) {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = target; el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 600); }
 }
 
 function renderBalanceChart(accounts) {
-    const ctx = document.getElementById("balanceChart");
+    const ctx = document.getElementById("balanceChart")?.getContext("2d");
     if (!ctx) return;
-
-    if (balanceChartInstance) balanceChartInstance.destroy();
-
-    if (accounts.length === 0) {
-        ctx.parentElement.innerHTML = '<div class="empty-state"><div class="icon">📊</div><h3>No accounts yet</h3><p>Create your first account to see charts.</p></div>';
-        return;
-    }
-
-    const colors = { savings: "#10b981", checking: "#06b6d4", wallet: "#8b5cf6", loan: "#f43f5e" };
-
-    balanceChartInstance = new Chart(ctx, {
+    if (balanceChart) balanceChart.destroy();
+    const activeAccts = accounts.filter(a => a.status !== "closed");
+    balanceChart = new Chart(ctx, {
         type: "bar",
         data: {
-            labels: accounts.map(a => a.account_number),
+            labels: activeAccts.map(a => `${a.account_type} (…${a.account_number.slice(-4)})`),
             datasets: [{
                 label: "Balance",
-                data: accounts.map(a => a.current_balance),
-                backgroundColor: accounts.map(a => colors[a.account_type] || "#6366f1"),
+                data: activeAccts.map(a => a.current_balance),
+                backgroundColor: ["#6366f1", "#06b6d4", "#10b981", "#f59e0b", "#8b5cf6", "#f43f5e"],
                 borderRadius: 8,
-                borderSkipped: false,
+                barPercentage: 0.6,
             }],
         },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    backgroundColor: "rgba(15, 23, 42, 0.95)",
-                    borderColor: "rgba(99, 102, 241, 0.3)",
-                    borderWidth: 1,
-                    titleColor: "#f1f5f9",
-                    bodyColor: "#94a3b8",
-                    padding: 12,
-                    cornerRadius: 8,
-                    callbacks: {
-                        label: ctx => formatCurrency(ctx.parsed.y),
-                    },
-                },
-            },
-            scales: {
-                x: {
-                    ticks: { color: "#64748b", font: { size: 11 } },
-                    grid: { display: false },
-                },
-                y: {
-                    ticks: {
-                        color: "#64748b",
-                        font: { size: 11 },
-                        callback: v => "$" + v.toLocaleString(),
-                    },
-                    grid: { color: "rgba(255,255,255,0.04)" },
-                },
-            },
-        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { color: "#94a3b8" }, grid: { color: "rgba(255,255,255,0.04)" } }, x: { ticks: { color: "#94a3b8" }, grid: { display: false } } } },
     });
 }
 
-function renderSpendingDoughnut(transactions) {
-    const ctx = document.getElementById("spendingDoughnut");
+function renderSpendingDoughnut(summary) {
+    const ctx = document.getElementById("spendingDoughnut")?.getContext("2d");
     if (!ctx) return;
-    if (spendingDoughnutInstance) spendingDoughnutInstance.destroy();
-
-    if (!transactions || transactions.length === 0) {
-        ctx.parentElement.innerHTML = '<div class="empty-state"><div class="icon">🍩</div><h3>No data yet</h3><p>Make transactions to see breakdown.</p></div>';
-        return;
-    }
-
-    const types = {};
-    for (const t of transactions) {
-        const type = t.type || "OTHER";
-        types[type] = (types[type] || 0) + Math.abs(t.amount);
-    }
-
-    const typeColors = {
-        DEPOSIT: "#10b981",
-        WITHDRAWAL: "#f43f5e",
-        TRANSFER: "#6366f1",
-        PAYMENT: "#f59e0b",
-        OTHER: "#8b5cf6",
-    };
-
-    spendingDoughnutInstance = new Chart(ctx, {
+    if (doughnutChart) doughnutChart.destroy();
+    const inc = summary?.total_income || 0;
+    const exp = summary?.total_expenses || 0;
+    doughnutChart = new Chart(ctx, {
         type: "doughnut",
         data: {
-            labels: Object.keys(types),
-            datasets: [{
-                data: Object.values(types),
-                backgroundColor: Object.keys(types).map(t => typeColors[t] || "#64748b"),
-                borderWidth: 0,
-                hoverOffset: 8,
-            }],
+            labels: ["Income", "Expenses"],
+            datasets: [{ data: [inc, exp], backgroundColor: ["#10b981", "#f43f5e"], borderWidth: 0, cutout: "70%" }],
         },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: "65%",
-            plugins: {
-                legend: {
-                    position: "bottom",
-                    labels: {
-                        color: "#94a3b8",
-                        padding: 16,
-                        font: { size: 12 },
-                        usePointStyle: true,
-                        pointStyleWidth: 10,
-                    },
-                },
-                tooltip: {
-                    backgroundColor: "rgba(15, 23, 42, 0.95)",
-                    titleColor: "#f1f5f9",
-                    bodyColor: "#94a3b8",
-                    padding: 12,
-                    cornerRadius: 8,
-                    callbacks: {
-                        label: ctx => ` ${ctx.label}: ${formatCurrency(ctx.parsed)}`,
-                    },
-                },
-            },
-        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { color: "#94a3b8", padding: 16 } } } },
     });
 }
 
-function renderRecentActivity(transactions) {
-    const container = document.getElementById("recentActivity");
-    if (!transactions || transactions.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="icon">📜</div><h3>No recent activity</h3><p>Make your first transaction.</p></div>';
-        return;
-    }
-
-    let html = '<div style="display:flex;flex-direction:column;gap:10px;">';
-    for (const txn of transactions) {
-        const isCredit = txn.amount > 0;
-        const amountClass = isCredit ? "amount-positive" : "amount-negative";
-        const icon = txn.type === "DEPOSIT" ? "💵" : txn.type === "WITHDRAWAL" ? "🏧" : txn.type === "TRANSFER" ? "🔄" : "💳";
-        html += `
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--bg-glass);border-radius:var(--radius-sm);border:1px solid var(--border-glass);transition:var(--transition-fast);" onmouseenter="this.style.background='var(--bg-glass-hover)'" onmouseleave="this.style.background='var(--bg-glass)'">
-                <div style="display:flex;align-items:center;gap:10px;">
-                    <span style="font-size:1.2rem;">${icon}</span>
-                    <div>
-                        <div style="font-size:0.85rem;font-weight:500;">${txn.narrative || txn.type}</div>
-                        <div style="font-size:0.72rem;color:var(--text-muted);">${txn.account_number || ""} · ${txn.transaction_date ? txn.transaction_date.split(" ")[0] : ""}</div>
-                    </div>
-                </div>
-                <span class="${amountClass}" style="font-size:0.9rem;">${isCredit ? "+" : ""}${formatCurrency(txn.amount)}</span>
-            </div>
-        `;
-    }
-    html += "</div>";
-    container.innerHTML = html;
+async function loadRecentActivity() {
+    try {
+        const history = await apiFetch("/transactions/history?limit=5");
+        const el = document.getElementById("recentActivity");
+        if (!history.length) { el.innerHTML = '<div class="empty-state"><div class="icon">📭</div><h3>No transactions yet</h3><p>Make your first deposit to get started!</p></div>'; return; }
+        el.innerHTML = `<div class="table-container"><table><thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Amount</th><th>Status</th></tr></thead><tbody>${history.map(t => `<tr><td>${formatDate(t.transaction_date)}</td><td>${t.type}</td><td>${t.narrative || "—"}</td><td class="${t.amount >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(t.amount)}</td><td><span class="badge badge-${t.status === "completed" ? "success" : "warning"}">${t.status}</span></td></tr>`).join("")}</tbody></table></div>`;
+    } catch { document.getElementById("recentActivity").innerHTML = '<div class="empty-state"><p>Could not load activity</p></div>'; }
 }
 
 // ══════════════════════════════════════════════════════════
-//  ACCOUNTS
+// ACCOUNTS
 // ══════════════════════════════════════════════════════════
-
 async function loadAccounts() {
-    const container = document.getElementById("accountsList");
-    showSkeletonCards(container, 3);
-
     try {
         const accounts = await apiFetch("/accounts/");
-        if (accounts.length === 0) {
-            container.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="icon">🏦</div><h3>No accounts yet</h3><p>Click "New Account" to create your first bank account.</p></div>';
-            return;
-        }
-
-        const maxBal = Math.max(...accounts.map(a => a.current_balance), 1);
-
-        let html = "";
-        for (const acct of accounts) {
-            const pct = Math.min((acct.current_balance / maxBal) * 100, 100);
-            html += `
-                <div class="account-card" onclick="toggleAccountExpand(this, ${acct.account_id})">
-                    <span class="account-type-badge ${acct.account_type}">${acct.account_type}</span>
-                    <div class="balance">${formatCurrency(acct.current_balance)}</div>
-                    <div class="account-number">
-                        <span class="status-dot ${acct.status}"></span>
-                        ${acct.account_number} · ${acct.currency}
-                    </div>
-                    <div class="account-progress">
-                        <div class="account-progress-fill ${acct.account_type}" style="width: ${pct}%"></div>
-                    </div>
-                    <div style="margin-top:8px;font-size:0.72rem;color:var(--text-muted);">
-                        ID: ${acct.account_id} · ${acct.status.toUpperCase()} · Click for details
-                    </div>
-                    <div class="account-mini-statement" id="mini-${acct.account_id}">
-                        <div style="text-align:center;padding:12px;color:var(--text-muted);font-size:0.78rem;">Loading mini-statement...</div>
-                    </div>
+        allAccounts = accounts;
+        const container = document.getElementById("accountsList");
+        if (!accounts.length) { container.innerHTML = '<div class="empty-state"><div class="icon">🏦</div><h3>No accounts yet</h3><p>Click "Open New Account" to get started.</p></div>'; return; }
+        container.innerHTML = accounts.map(a => `
+            <div class="account-card" onclick="viewAccountDetail(${a.account_id})">
+                <span class="account-type-badge ${a.account_type}">${a.account_type}</span>
+                <div class="balance">${formatCurrency(a.current_balance)}</div>
+                <div class="account-number"><span class="status-dot ${a.status}"></span> ${a.account_number} • <span style="text-transform:capitalize">${a.status}</span></div>
+                <div class="account-actions" onclick="event.stopPropagation();">
+                    ${a.status === "active" ? `<button class="btn btn-warning btn-sm" onclick="freezeAccount(${a.account_id})">❄️ Freeze</button>` : ""}
+                    ${a.status === "frozen" ? `<button class="btn btn-success btn-sm" onclick="freezeAccount(${a.account_id})">🔓 Unfreeze</button>` : ""}
+                    ${a.status !== "closed" ? `<button class="btn btn-danger btn-sm" onclick="closeAccountFlow(${a.account_id}, ${a.current_balance})">Close</button>` : `<span class="badge badge-danger">Closed</span>`}
                 </div>
-            `;
-        }
-        container.innerHTML = html;
-    } catch (err) {
-        container.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">⚠️</div><h3>Error</h3><p>${err.message}</p></div>`;
-    }
+            </div>`).join("");
+    } catch (err) { toast("Failed to load accounts", "error"); }
 }
 
-async function toggleAccountExpand(card, accountId) {
-    const isExpanded = card.classList.contains("expanded");
-    // Close all expanded
-    document.querySelectorAll(".account-card.expanded").forEach(c => c.classList.remove("expanded"));
+// Account creation is admin-only — see adminCreateAccount in admin functions below
 
-    if (!isExpanded) {
-        card.classList.add("expanded");
-        const miniContainer = document.getElementById(`mini-${accountId}`);
-        try {
-            const statement = await apiFetch(`/accounts/${accountId}/statement`);
-            const txns = statement.slice(0, 5);
-            if (txns.length === 0) {
-                miniContainer.innerHTML = '<div style="text-align:center;padding:8px;font-size:0.78rem;color:var(--text-muted);">No transactions yet</div>';
-            } else {
-                let html = '<div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:8px;font-weight:600;">Recent Transactions</div>';
-                for (const t of txns) {
-                    const isPos = t.amount > 0;
-                    html += `
-                        <div class="mini-txn">
-                            <span class="desc">${t.narrative || t.type}</span>
-                            <span class="${isPos ? 'amt-pos' : 'amt-neg'}">${isPos ? '+' : ''}${formatCurrency(t.amount)}</span>
-                        </div>
-                    `;
-                }
-                miniContainer.innerHTML = html;
-            }
-        } catch {
-            miniContainer.innerHTML = '<div style="text-align:center;padding:8px;font-size:0.78rem;color:var(--text-muted);">Could not load statement</div>';
-        }
-    }
-}
-
-function showCreateAccountModal() {
-    document.getElementById("createAccountForm").style.display = "block";
-}
-
-function hideCreateAccountModal() {
-    document.getElementById("createAccountForm").style.display = "none";
-}
-
-async function handleCreateAccount(e) {
-    e.preventDefault();
+async function viewAccountDetail(accountId) {
+    const panel = document.getElementById("accountDetailPanel");
+    panel.style.display = "block";
+    document.getElementById("detailInfo").innerHTML = '<div class="loading-overlay"><div class="spinner"></div></div>';
+    document.getElementById("detailStatement").innerHTML = '<div class="loading-overlay"><div class="spinner"></div></div>';
     try {
-        const data = await apiFetch("/accounts/", {
-            method: "POST",
-            body: JSON.stringify({
-                account_type: document.getElementById("newAccountType").value,
-                currency: document.getElementById("newAccountCurrency").value,
-            }),
-        });
-        showToast(data.message + ` (${data.data.account_number})`, "success");
-        hideCreateAccountModal();
+        const detail = await apiFetch(`/accounts/${accountId}`);
+        document.getElementById("detailAccountTitle").textContent = `${detail.account_type.toUpperCase()} — ${detail.account_number}`;
+        document.getElementById("detailInfo").innerHTML = `
+            <div class="detail-item"><div class="label">Balance</div><div class="value">${formatCurrency(detail.current_balance)}</div></div>
+            <div class="detail-item"><div class="label">Account Type</div><div class="value" style="text-transform:capitalize">${detail.account_type}</div></div>
+            <div class="detail-item"><div class="label">Currency</div><div class="value">${detail.currency}</div></div>
+            <div class="detail-item"><div class="label">Status</div><div class="value"><span class="status-dot ${detail.status}"></span> ${detail.status}</div></div>
+            <div class="detail-item"><div class="label">Opened</div><div class="value">${formatDate(detail.created_at)}</div></div>`;
+
+        // Actions
+        const actionsEl = document.getElementById("detailActions");
+        actionsEl.innerHTML = "";
+        if (detail.status === "active") actionsEl.innerHTML += `<button class="btn btn-warning btn-sm" onclick="freezeAccount(${detail.account_id})">❄️ Freeze Account</button>`;
+        if (detail.status === "frozen") actionsEl.innerHTML += `<button class="btn btn-success btn-sm" onclick="freezeAccount(${detail.account_id})">🔓 Unfreeze Account</button>`;
+        if (detail.status !== "closed") actionsEl.innerHTML += `<button class="btn btn-danger btn-sm" onclick="closeAccountFlow(${detail.account_id}, ${detail.current_balance})">Close Account</button>`;
+
+        // Mini-statement
+        const txns = detail.recent_transactions || [];
+        if (!txns.length) { document.getElementById("detailStatement").innerHTML = '<div class="empty-state"><p>No transactions for this account.</p></div>'; return; }
+        document.getElementById("detailStatement").innerHTML = `<table><thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Amount</th><th>Balance</th></tr></thead><tbody>${txns.map(t => `<tr><td>${formatDate(t.transaction_date)}</td><td>${t.type}</td><td>${t.narrative || "—"}</td><td class="${t.amount >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(t.amount)}</td><td>${formatCurrency(t.balance_after)}</td></tr>`).join("")}</tbody></table>`;
+    } catch (err) { toast(err.message, "error"); }
+}
+
+function closeAccountDetail() { document.getElementById("accountDetailPanel").style.display = "none"; }
+
+function freezeAccount(id) {
+    showConfirm("Toggle Account Freeze", "Are you sure you want to freeze/unfreeze this account?", [
+        { label: "Account ID", value: id },
+    ], async () => {
+        const res = await apiFetch(`/accounts/${id}/freeze`, "PATCH");
+        toast(res.message, "success");
+        addNotification(`🔒 ${res.message}`, "info");
         loadAccounts();
-    } catch (err) {
-        showToast(err.message, "error");
-    }
+        closeAccountDetail();
+    });
+}
+
+function closeAccountFlow(id, balance) {
+    if (balance !== 0) { toast(`Account balance must be ₹0.00 to close. Current: ₹${balance.toFixed(2)}`, "error"); return; }
+    showConfirm("Close Account Permanently", "This action is irreversible. The account will be permanently closed.", [
+        { label: "Account ID", value: id },
+        { label: "Action", value: "Permanent Closure" },
+    ], async () => {
+        const res = await apiFetch(`/accounts/${id}/close`, "PATCH");
+        toast(res.message, "success");
+        addNotification(`🗑️ ${res.message}`, "info");
+        loadAccounts();
+        closeAccountDetail();
+    });
 }
 
 // ══════════════════════════════════════════════════════════
-//  TRANSACTIONS — with Confirmation & Receipt
+// FUND TRANSFER
 // ══════════════════════════════════════════════════════════
+function loadTransferSelects() {
+    const activeAccounts = allAccounts.filter(a => a.status === "active");
+    const options = activeAccounts.map(a => `<option value="${a.account_id}">${a.account_type} (…${a.account_number.slice(-4)}) — $${a.current_balance.toFixed(2)}</option>`).join("");
+    ["ownTransferFrom", "ownTransferTo", "extTransferFrom"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = `<option value="">Select account...</option>` + options;
+    });
+}
 
-async function loadTransactionDropdowns() {
-    try {
-        const accounts = await apiFetch("/accounts/");
-        const options = accounts.map(a =>
-            `<option value="${a.account_id}">${a.account_number} (${a.account_type}) — ${formatCurrency(a.current_balance)}</option>`
-        );
-        const optionsHtml = '<option value="">Select account...</option>' + options.join("");
+function handleOwnTransfer(e) {
+    e.preventDefault();
+    const from = document.getElementById("ownTransferFrom").value;
+    const to = document.getElementById("ownTransferTo").value;
+    const amount = parseFloat(document.getElementById("ownTransferAmount").value);
+    const desc = document.getElementById("ownTransferDesc").value || "Own Account Transfer";
+    if (from === to) { toast("From and To accounts must be different", "error"); return; }
+    showConfirm("Confirm Transfer", "Review the transfer details below.", [
+        { label: "From Account", value: `ID ${from}` },
+        { label: "To Account", value: `ID ${to}` },
+        { label: "Amount", value: formatCurrency(amount), total: true },
+    ], async () => {
+        await apiFetch("/transactions/transfer", "POST", { sender_account_id: parseInt(from), receiver_account_id: parseInt(to), amount, description: desc });
+        showReceipt(amount, [{ label: "Type", value: "Own Transfer" }, { label: "From", value: `Account ${from}` }, { label: "To", value: `Account ${to}` }, { label: "Description", value: desc }]);
+        addNotification(`🔄 Transferred ${formatCurrency(amount)}`, "success");
+        loadTransferSelects();
+        document.querySelector('#page-transfer form').reset();
+    });
+}
 
-        document.getElementById("depositAccount").innerHTML = optionsHtml;
-        document.getElementById("withdrawAccount").innerHTML = optionsHtml;
-        document.getElementById("transferFrom").innerHTML = optionsHtml;
-    } catch (err) {
-        showToast("Failed to load accounts: " + err.message, "error");
-    }
+function handleExternalTransfer(e) {
+    e.preventDefault();
+    const from = document.getElementById("extTransferFrom").value;
+    const to = parseInt(document.getElementById("extTransferTo").value);
+    const amount = parseFloat(document.getElementById("extTransferAmount").value);
+    const desc = document.getElementById("extTransferDesc").value || "Fund Transfer";
+    showConfirm("Confirm External Transfer", "You are sending money to another account.", [
+        { label: "From Account", value: `ID ${from}` },
+        { label: "Receiver Account ID", value: to },
+        { label: "Amount", value: formatCurrency(amount), total: true },
+    ], async () => {
+        await apiFetch("/transactions/transfer", "POST", { sender_account_id: parseInt(from), receiver_account_id: to, amount, description: desc });
+        showReceipt(amount, [{ label: "Type", value: "External Transfer" }, { label: "Receiver", value: `Account ${to}` }, { label: "Description", value: desc }]);
+        addNotification(`📤 Sent ${formatCurrency(amount)} to Account ${to}`, "success");
+        loadTransferSelects();
+    });
+}
+
+// ── Beneficiaries ────────────────────────────────────────
+function getBeneficiaries() { return JSON.parse(localStorage.getItem("beneficiaries") || "[]"); }
+function saveBeneficiaries(b) { localStorage.setItem("beneficiaries", JSON.stringify(b)); }
+
+function loadBeneficiaries() {
+    const list = getBeneficiaries();
+    const container = document.getElementById("beneficiaryList");
+    if (!list.length) { container.innerHTML = '<div class="empty-state" style="padding:20px;"><p>No saved beneficiaries. Click "＋ Add" to save one.</p></div>'; return; }
+    container.innerHTML = list.map((b, i) => `
+        <div class="beneficiary-card" onclick="selectBeneficiary(${b.accountId})">
+            <div class="beneficiary-avatar">${b.name.charAt(0).toUpperCase()}</div>
+            <div class="beneficiary-info"><div class="name">${b.name}</div><div class="acct">Account: ${b.accountId}</div></div>
+            <button class="beneficiary-remove" onclick="event.stopPropagation();removeBeneficiary(${i})" title="Remove">✕</button>
+        </div>`).join("");
+}
+
+function showAddBeneficiaryForm() { document.getElementById("addBeneficiaryForm").style.display = "block"; }
+function hideAddBeneficiaryForm() { document.getElementById("addBeneficiaryForm").style.display = "none"; }
+
+function addBeneficiary() {
+    const name = document.getElementById("beneName").value.trim();
+    const accountId = parseInt(document.getElementById("beneAccountId").value);
+    if (!name || !accountId) { toast("Name and Account ID are required", "error"); return; }
+    const list = getBeneficiaries();
+    list.push({ name, accountId });
+    saveBeneficiaries(list);
+    document.getElementById("beneName").value = "";
+    document.getElementById("beneAccountId").value = "";
+    hideAddBeneficiaryForm();
+    loadBeneficiaries();
+    toast("Beneficiary saved", "success");
+}
+
+function removeBeneficiary(index) {
+    const list = getBeneficiaries();
+    list.splice(index, 1);
+    saveBeneficiaries(list);
+    loadBeneficiaries();
+}
+
+function selectBeneficiary(accountId) {
+    document.getElementById("extTransferTo").value = accountId;
+    toast(`Beneficiary selected — Account ${accountId}`, "info");
+}
+
+// ══════════════════════════════════════════════════════════
+// DEPOSIT / WITHDRAW
+// ══════════════════════════════════════════════════════════
+function loadTransactionSelects() {
+    const activeAccounts = allAccounts.filter(a => a.status === "active");
+    const options = activeAccounts.map(a => `<option value="${a.account_id}">${a.account_type} (…${a.account_number.slice(-4)}) — $${a.current_balance.toFixed(2)}</option>`).join("");
+    ["depositAccount", "withdrawAccount"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = `<option value="">Select account...</option>` + options;
+    });
 }
 
 function handleDeposit(e) {
     e.preventDefault();
-    const accountEl = document.getElementById("depositAccount");
+    const acctId = parseInt(document.getElementById("depositAccount").value);
     const amount = parseFloat(document.getElementById("depositAmount").value);
-    const desc = document.getElementById("depositDesc").value || "Cash Deposit";
-    const accountName = accountEl.options[accountEl.selectedIndex].text;
-
-    showConfirmation("Confirm Deposit", "You are about to deposit funds", {
-        "Account": accountName,
-        "Description": desc,
-        "Amount": formatCurrency(amount),
-    }, async () => {
-        const data = await apiFetch("/transactions/deposit", {
-            method: "POST",
-            body: JSON.stringify({
-                account_id: parseInt(accountEl.value),
-                amount,
-                description: desc,
-            }),
-        });
-        showReceipt(amount, {
-            "Type": "Deposit",
-            "Account": accountName,
-            "Description": desc,
-            "Status": "Completed",
-            "Date": new Date().toLocaleString(),
-        });
-        document.getElementById("depositAmount").value = "";
-        document.getElementById("depositDesc").value = "";
-        loadTransactionDropdowns();
+    const desc = document.getElementById("depositDesc").value || "Deposit";
+    showConfirm("Confirm Deposit", "Review the deposit details.", [
+        { label: "Account", value: `ID ${acctId}` },
+        { label: "Amount", value: formatCurrency(amount), total: true },
+    ], async () => {
+        await apiFetch("/transactions/deposit", "POST", { account_id: acctId, amount, description: desc });
+        showReceipt(amount, [{ label: "Type", value: "Deposit" }, { label: "Account", value: `ID ${acctId}` }, { label: "Description", value: desc }]);
+        addNotification(`💵 Deposited ${formatCurrency(amount)}`, "success");
+        loadTransactionSelects();
     });
 }
 
 function handleWithdraw(e) {
     e.preventDefault();
-    const accountEl = document.getElementById("withdrawAccount");
+    const acctId = parseInt(document.getElementById("withdrawAccount").value);
     const amount = parseFloat(document.getElementById("withdrawAmount").value);
-    const desc = document.getElementById("withdrawDesc").value || "Cash Withdrawal";
-    const accountName = accountEl.options[accountEl.selectedIndex].text;
-
-    showConfirmation("Confirm Withdrawal", "You are about to withdraw funds", {
-        "Account": accountName,
-        "Description": desc,
-        "Amount": formatCurrency(amount),
-    }, async () => {
-        const data = await apiFetch("/transactions/withdraw", {
-            method: "POST",
-            body: JSON.stringify({
-                account_id: parseInt(accountEl.value),
-                amount,
-                description: desc,
-            }),
-        });
-        showReceipt(amount, {
-            "Type": "Withdrawal",
-            "Account": accountName,
-            "Description": desc,
-            "Status": "Completed",
-            "Date": new Date().toLocaleString(),
-        });
-        document.getElementById("withdrawAmount").value = "";
-        document.getElementById("withdrawDesc").value = "";
-        loadTransactionDropdowns();
-    });
-}
-
-function handleTransfer(e) {
-    e.preventDefault();
-    const fromEl = document.getElementById("transferFrom");
-    const toId = document.getElementById("transferTo").value;
-    const amount = parseFloat(document.getElementById("transferAmount").value);
-    const desc = document.getElementById("transferDesc").value || "Fund Transfer";
-    const fromName = fromEl.options[fromEl.selectedIndex].text;
-
-    showConfirmation("Confirm Transfer", "Please verify the transfer details", {
-        "From": fromName,
-        "To Account ID": toId,
-        "Description": desc,
-        "Amount": formatCurrency(amount),
-    }, async () => {
-        const data = await apiFetch("/transactions/transfer", {
-            method: "POST",
-            body: JSON.stringify({
-                sender_account_id: parseInt(fromEl.value),
-                receiver_account_id: parseInt(toId),
-                amount,
-                description: desc,
-            }),
-        });
-        showReceipt(amount, {
-            "Type": "Transfer",
-            "From": fromName,
-            "To Account": `#${toId}`,
-            "Description": desc,
-            "Status": "Completed",
-            "Date": new Date().toLocaleString(),
-        });
-        document.getElementById("transferAmount").value = "";
-        document.getElementById("transferTo").value = "";
-        document.getElementById("transferDesc").value = "";
-        loadTransactionDropdowns();
+    const desc = document.getElementById("withdrawDesc").value || "Withdrawal";
+    showConfirm("Confirm Withdrawal", "Review the withdrawal details.", [
+        { label: "Account", value: `ID ${acctId}` },
+        { label: "Amount", value: formatCurrency(amount), total: true },
+    ], async () => {
+        await apiFetch("/transactions/withdraw", "POST", { account_id: acctId, amount, description: desc });
+        showReceipt(amount, [{ label: "Type", value: "Withdrawal" }, { label: "Account", value: `ID ${acctId}` }, { label: "Description", value: desc }]);
+        addNotification(`🏧 Withdrew ${formatCurrency(amount)}`, "success");
+        loadTransactionSelects();
     });
 }
 
 // ══════════════════════════════════════════════════════════
-//  TRANSACTION HISTORY — Search, Pagination, Export
+// HISTORY
 // ══════════════════════════════════════════════════════════
-
 async function loadHistory() {
-    const container = document.getElementById("historyTable");
-    container.innerHTML = '<div class="loading-overlay"><div class="spinner"></div>Loading...</div>';
-
     try {
-        const typeFilter = document.getElementById("historyTypeFilter").value;
-        const url = `/transactions/history?limit=500${typeFilter ? `&type=${typeFilter}` : ""}`;
-        allTransactions = await apiFetch(url);
-        currentPage = 1;
-        filterHistory();
-    } catch (err) {
-        container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Error</h3><p>${err.message}</p></div>`;
-        document.getElementById("historyPagination").style.display = "none";
-    }
+        allHistory = await apiFetch("/transactions/history?limit=500");
+        filteredHistory = [...allHistory];
+        historyPage = 1;
+        renderHistory();
+    } catch (err) { toast("Failed to load history", "error"); }
+}
+
+function debounceFilterHistory() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(filterHistory, 300);
 }
 
 function filterHistory() {
-    const searchTerm = (document.getElementById("historySearch")?.value || "").toLowerCase();
-    const dateFrom = document.getElementById("historyDateFrom")?.value || "";
-    const dateTo = document.getElementById("historyDateTo")?.value || "";
+    const search = (document.getElementById("historySearch").value || "").toLowerCase();
+    const dateFrom = document.getElementById("historyDateFrom").value;
+    const dateTo = document.getElementById("historyDateTo").value;
+    const typeFilter = document.getElementById("historyTypeFilter").value;
 
-    filteredTransactions = allTransactions.filter(txn => {
-        // Search filter
-        if (searchTerm) {
-            const text = `${txn.narrative || ""} ${txn.type || ""} ${txn.amount} ${txn.account_number || ""}`.toLowerCase();
-            if (!text.includes(searchTerm)) return false;
-        }
-        // Date filter
-        if (dateFrom && txn.transaction_date) {
-            const txnDate = txn.transaction_date.split(" ")[0];
-            if (txnDate < dateFrom) return false;
-        }
-        if (dateTo && txn.transaction_date) {
-            const txnDate = txn.transaction_date.split(" ")[0];
-            if (txnDate > dateTo) return false;
-        }
+    filteredHistory = allHistory.filter(t => {
+        const text = `${t.narrative || ""} ${t.type} ${t.amount} ${t.status}`.toLowerCase();
+        if (search && !text.includes(search)) return false;
+        if (typeFilter && t.type !== typeFilter) return false;
+        if (dateFrom && t.transaction_date < dateFrom) return false;
+        if (dateTo && t.transaction_date > dateTo + "T23:59:59") return false;
         return true;
     });
-
-    currentPage = 1;
-    renderHistoryPage();
+    historyPage = 1;
+    renderHistory();
 }
 
-function renderHistoryPage() {
+function renderHistory() {
     const container = document.getElementById("historyTable");
-    const totalItems = filteredTransactions.length;
-    const totalPages = Math.ceil(totalItems / PAGE_SIZE) || 1;
-    const start = (currentPage - 1) * PAGE_SIZE;
-    const end = Math.min(start + PAGE_SIZE, totalItems);
-    const pageItems = filteredTransactions.slice(start, end);
+    const paginationEl = document.getElementById("historyPagination");
 
-    if (totalItems === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="icon">📜</div><h3>No transactions found</h3><p>Adjust your filters or make a transaction first.</p></div>';
-        document.getElementById("historyPagination").style.display = "none";
+    if (!filteredHistory.length) {
+        container.innerHTML = '<div class="empty-state"><div class="icon">📭</div><h3>No transactions found</h3><p>Try adjusting your filters.</p></div>';
+        paginationEl.style.display = "none";
         return;
     }
 
-    let html = `
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>Description</th>
-                    <th>Account</th>
-                    <th>Amount</th>
-                    <th>Balance</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
-    `;
+    const totalPages = Math.ceil(filteredHistory.length / ITEMS_PER_PAGE);
+    const start = (historyPage - 1) * ITEMS_PER_PAGE;
+    const pageItems = filteredHistory.slice(start, start + ITEMS_PER_PAGE);
 
-    for (const txn of pageItems) {
-        const isCredit = txn.amount > 0;
-        const amountClass = isCredit ? "amount-positive" : "amount-negative";
-        const statusBadge = txn.status === "completed"
-            ? '<span class="badge badge-success">completed</span>'
-            : txn.status === "pending"
-                ? '<span class="badge badge-warning">pending</span>'
-                : `<span class="badge badge-danger">${txn.status}</span>`;
-
-        html += `
-            <tr>
-                <td>#${txn.transaction_id}</td>
-                <td style="white-space:nowrap;">${txn.transaction_date ? txn.transaction_date.split(" ")[0] : "—"}</td>
-                <td><span class="badge badge-info">${txn.type}</span></td>
-                <td>${txn.narrative || "—"}</td>
-                <td style="font-family:monospace;font-size:0.78rem;">${txn.account_number || "—"}</td>
-                <td class="${amountClass}">${isCredit ? "+" : ""}${formatCurrency(txn.amount)}</td>
-                <td>${formatCurrency(txn.balance_after)}</td>
-                <td>${statusBadge}</td>
-            </tr>
-        `;
-    }
-
-    html += "</tbody></table>";
-    container.innerHTML = html;
+    container.innerHTML = `<table><thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Description</th><th>Amount</th><th>Balance</th><th>Status</th></tr></thead><tbody>${pageItems.map(t => {
+        const cat = categorize(t.narrative);
+        return `<tr><td>${formatDate(t.transaction_date)}</td><td>${t.type}</td><td><span class="category-tag ${cat.cls}">${cat.label}</span></td><td>${t.narrative || "—"}</td><td class="${t.amount >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(t.amount)}</td><td>${formatCurrency(t.balance_after)}</td><td><span class="badge badge-${t.status === "completed" ? "success" : "warning"}">${t.status}</span></td></tr>`;
+    }).join("")}</tbody></table>`;
 
     // Pagination
-    const paginationEl = document.getElementById("historyPagination");
-    paginationEl.style.display = totalPages > 1 ? "flex" : "none";
-    document.getElementById("pageInfo").textContent = `Showing ${start + 1}–${end} of ${totalItems}`;
-    document.getElementById("prevPageBtn").disabled = currentPage <= 1;
-    document.getElementById("nextPageBtn").disabled = currentPage >= totalPages;
+    if (totalPages > 1) {
+        paginationEl.style.display = "flex";
+        let html = `<button ${historyPage === 1 ? "disabled" : ""} onclick="goHistoryPage(${historyPage - 1})">◀ Prev</button>`;
+        for (let p = 1; p <= totalPages; p++) {
+            if (totalPages > 7 && Math.abs(p - historyPage) > 2 && p !== 1 && p !== totalPages) { if (p === 2 || p === totalPages - 1) html += `<span class="page-info">…</span>`; continue; }
+            html += `<button class="${p === historyPage ? "active" : ""}" onclick="goHistoryPage(${p})">${p}</button>`;
+        }
+        html += `<button ${historyPage === totalPages ? "disabled" : ""} onclick="goHistoryPage(${historyPage + 1})">Next ▶</button>`;
+        html += `<span class="page-info">${filteredHistory.length} items</span>`;
+        paginationEl.innerHTML = html;
+    } else { paginationEl.style.display = "none"; }
 }
 
-function changePage(delta) {
-    const totalPages = Math.ceil(filteredTransactions.length / PAGE_SIZE) || 1;
-    currentPage = Math.max(1, Math.min(currentPage + delta, totalPages));
-    renderHistoryPage();
-}
+function goHistoryPage(p) { historyPage = p; renderHistory(); }
 
-// ── CSV Export ────────────────────────────────────────────
+function categorize(narrative) {
+    if (!narrative) return { label: "Other", cls: "other" };
+    const n = narrative.toLowerCase();
+    if (n.includes("salary") || n.includes("payroll")) return { label: "Salary", cls: "salary" };
+    if (n.includes("food") || n.includes("restaurant") || n.includes("groceries")) return { label: "Food", cls: "food" };
+    if (n.includes("rent") || n.includes("lease")) return { label: "Rent", cls: "rent" };
+    if (n.includes("shop") || n.includes("amazon") || n.includes("store")) return { label: "Shopping", cls: "shopping" };
+    if (n.includes("bill") || n.includes("electric") || n.includes("utility")) return { label: "Bills", cls: "bills" };
+    if (n.includes("transfer")) return { label: "Transfer", cls: "transfer" };
+    return { label: "Other", cls: "other" };
+}
 
 function exportTransactionsCSV() {
-    const data = filteredTransactions.length > 0 ? filteredTransactions : allTransactions;
-    if (!data || data.length === 0) {
-        showToast("No transactions to export.", "info");
-        return;
-    }
-
-    const headers = ["ID", "Date", "Type", "Description", "Account", "Amount", "Balance After", "Status"];
-    const rows = data.map(t => [
-        t.transaction_id,
-        t.transaction_date || "",
-        t.type || "",
-        `"${(t.narrative || "").replace(/"/g, '""')}"`,
-        t.account_number || "",
-        t.amount,
-        t.balance_after || "",
-        t.status || "",
-    ]);
-
-    let csv = headers.join(",") + "\n";
-    csv += rows.map(r => r.join(",")).join("\n");
-
+    if (!filteredHistory.length) { toast("No data to export", "error"); return; }
+    const headers = ["Date", "Type", "Category", "Description", "Amount", "Balance After", "Status"];
+    const rows = filteredHistory.map(t => [formatDate(t.transaction_date), t.type, categorize(t.narrative).label, `"${(t.narrative || "").replace(/"/g, '""')}"`, t.amount, t.balance_after, t.status]);
+    let csv = headers.join(",") + "\n" + rows.map(r => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `transactions_${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    showToast(`Exported ${data.length} transactions to CSV`, "success");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `transactions_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    toast("CSV exported successfully", "success");
 }
 
 // ══════════════════════════════════════════════════════════
-//  ANALYTICS
+// ANALYTICS
 // ══════════════════════════════════════════════════════════
-
 async function loadAnalytics() {
     try {
-        const [prediction, summary, history] = await Promise.all([
+        const [prediction, summary] = await Promise.all([
             apiFetch("/analytics/spending-prediction").catch(() => null),
             apiFetch("/analytics/spending-summary").catch(() => null),
-            apiFetch("/transactions/history?limit=500").catch(() => []),
         ]);
 
-        // Prediction
         if (prediction) {
             document.getElementById("predictedSpending").textContent = formatCurrency(prediction.predicted_next_month);
             document.getElementById("avgMonthly").textContent = formatCurrency(prediction.average_monthly);
-
-            const trendIcons = { increasing: "📈 Increasing", decreasing: "📉 Decreasing", stable: "➡️ Stable" };
-            document.getElementById("spendingTrend").innerHTML =
-                `<span class="trend-badge ${prediction.trend}">${trendIcons[prediction.trend] || prediction.trend}</span>`;
+            document.getElementById("spendingTrend").innerHTML = `<span class="trend-badge ${prediction.trend}">${prediction.trend === "increasing" ? "📈" : prediction.trend === "decreasing" ? "📉" : "➡️"} ${prediction.trend}</span>`;
+            renderTrendChart(prediction.monthly_data);
         }
 
-        // Summary
         if (summary) {
             document.getElementById("summaryIncome").textContent = formatCurrency(summary.total_income);
             document.getElementById("summaryExpenses").textContent = formatCurrency(summary.total_expenses);
@@ -1006,225 +641,459 @@ async function loadAnalytics() {
             document.getElementById("summaryTxnCount").textContent = summary.transaction_count;
         }
 
-        // Monthly trend chart
-        renderMonthlyTrend(history);
-
-        // Load risk scores
         loadRiskScores();
-    } catch (err) {
-        showToast("Failed to load analytics: " + err.message, "error");
-    }
+    } catch (err) { toast("Failed to load analytics", "error"); }
 }
 
-function renderMonthlyTrend(transactions) {
-    const ctx = document.getElementById("monthlyTrendChart");
-    if (!ctx) return;
-    if (monthlyTrendInstance) monthlyTrendInstance.destroy();
-
-    if (!transactions || transactions.length === 0) {
-        ctx.parentElement.innerHTML = '<div class="empty-state"><div class="icon">📈</div><h3>No data</h3><p>Transactions will appear here.</p></div>';
-        return;
-    }
-
-    // Group by month
-    const monthlyData = {};
-    for (const t of transactions) {
-        if (!t.transaction_date) continue;
-        const month = t.transaction_date.substring(0, 7); // YYYY-MM
-        if (!monthlyData[month]) monthlyData[month] = { income: 0, expense: 0 };
-        if (t.amount > 0) monthlyData[month].income += t.amount;
-        else monthlyData[month].expense += Math.abs(t.amount);
-    }
-
-    const labels = Object.keys(monthlyData).sort();
-    const incomeData = labels.map(m => monthlyData[m].income);
-    const expenseData = labels.map(m => monthlyData[m].expense);
-
-    monthlyTrendInstance = new Chart(ctx, {
+function renderTrendChart(monthlyData) {
+    const ctx = document.getElementById("monthlyTrendChart")?.getContext("2d");
+    if (!ctx || !monthlyData?.length) return;
+    if (trendChart) trendChart.destroy();
+    trendChart = new Chart(ctx, {
         type: "line",
         data: {
-            labels: labels.map(m => {
-                const d = new Date(m + "-01");
-                return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-            }),
-            datasets: [
-                {
-                    label: "Income",
-                    data: incomeData,
-                    borderColor: "#10b981",
-                    backgroundColor: "rgba(16, 185, 129, 0.1)",
-                    fill: true,
-                    tension: 0.4,
-                    borderWidth: 2,
-                    pointRadius: 4,
-                    pointBackgroundColor: "#10b981",
-                },
-                {
-                    label: "Expenses",
-                    data: expenseData,
-                    borderColor: "#f43f5e",
-                    backgroundColor: "rgba(244, 63, 94, 0.1)",
-                    fill: true,
-                    tension: 0.4,
-                    borderWidth: 2,
-                    pointRadius: 4,
-                    pointBackgroundColor: "#f43f5e",
-                },
-            ],
+            labels: monthlyData.map(m => m.month),
+            datasets: [{ label: "Spending", data: monthlyData.map(m => m.total_spent), borderColor: "#f43f5e", backgroundColor: "rgba(244,63,94,0.08)", tension: 0.4, fill: true, pointRadius: 4, pointBackgroundColor: "#f43f5e" }],
         },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    labels: { color: "#94a3b8", padding: 16, usePointStyle: true },
-                },
-                tooltip: {
-                    backgroundColor: "rgba(15, 23, 42, 0.95)",
-                    titleColor: "#f1f5f9",
-                    bodyColor: "#94a3b8",
-                    padding: 12,
-                    cornerRadius: 8,
-                    callbacks: {
-                        label: ctx => ` ${ctx.dataset.label}: ${formatCurrency(ctx.parsed.y)}`,
-                    },
-                },
-            },
-            scales: {
-                x: {
-                    ticks: { color: "#64748b", font: { size: 11 } },
-                    grid: { display: false },
-                },
-                y: {
-                    ticks: {
-                        color: "#64748b",
-                        font: { size: 11 },
-                        callback: v => "$" + v.toLocaleString(),
-                    },
-                    grid: { color: "rgba(255,255,255,0.04)" },
-                },
-            },
-        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: "#94a3b8" } } }, scales: { y: { beginAtZero: true, ticks: { color: "#94a3b8" }, grid: { color: "rgba(255,255,255,0.04)" } }, x: { ticks: { color: "#94a3b8" }, grid: { display: false } } } },
     });
 }
 
 async function loadRiskScores() {
-    const container = document.getElementById("riskScoresTable");
-    container.innerHTML = '<div class="loading-overlay"><div class="spinner"></div>Loading...</div>';
-
     try {
         const scores = await apiFetch("/analytics/risk-scores");
-
-        if (scores.length === 0) {
-            container.innerHTML = '<div class="empty-state"><div class="icon">🤖</div><h3>No risk scores</h3><p>The AI worker needs to score your transactions first.</p></div>';
-            return;
-        }
-
-        let html = `
-            <table>
-                <thead>
-                    <tr>
-                        <th>TXN ID</th>
-                        <th>Amount</th>
-                        <th>Risk Score</th>
-                        <th>Risk Level</th>
-                        <th>Verdict</th>
-                        <th>Scored At</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-
-        for (const s of scores) {
-            const riskClass = s.risk_score >= 0.8 ? "critical" : s.risk_score >= 0.5 ? "suspicious" : "safe";
-            const verdictBadge = s.verdict === "SAFE"
-                ? '<span class="badge badge-success">🟢 SAFE</span>'
-                : s.verdict === "SUSPICIOUS"
-                    ? '<span class="badge badge-warning">🟡 SUSPICIOUS</span>'
-                    : '<span class="badge badge-danger">🔴 CRITICAL</span>';
-
-            html += `
-                <tr>
-                    <td>#${s.transaction_id}</td>
-                    <td>${formatCurrency(s.amount)}</td>
-                    <td>
-                        ${s.risk_score.toFixed(4)}
-                        <div class="risk-bar"><div class="risk-bar-fill ${riskClass}" style="width: ${s.risk_score * 100}%"></div></div>
-                    </td>
-                    <td style="text-transform:uppercase;font-weight:600;color:${riskClass === 'safe' ? 'var(--accent-emerald)' : riskClass === 'suspicious' ? 'var(--accent-amber)' : 'var(--accent-rose)'};">${riskClass}</td>
-                    <td>${verdictBadge}</td>
-                    <td style="white-space:nowrap;font-size:0.78rem;">${s.scored_at || "—"}</td>
-                </tr>
-            `;
-        }
-
-        html += "</tbody></table>";
-        container.innerHTML = html;
-    } catch (err) {
-        container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Error</h3><p>${err.message}</p></div>`;
-    }
+        const container = document.getElementById("riskScoresTable");
+        if (!scores.length) { container.innerHTML = '<div class="empty-state"><p>No risk scores available yet.</p></div>'; return; }
+        container.innerHTML = `<table><thead><tr><th>Txn ID</th><th>Amount</th><th>Risk Score</th><th>Verdict</th><th>Scored At</th></tr></thead><tbody>${scores.map(s => {
+            const cls = s.risk_score < 0.3 ? "safe" : s.risk_score < 0.7 ? "suspicious" : "critical";
+            return `<tr><td>#${s.transaction_id}</td><td>${formatCurrency(s.amount)}</td><td><div class="risk-bar"><div class="risk-bar-fill ${cls}" style="width:${Math.round(s.risk_score * 100)}%"></div></div><span style="font-size:0.75rem;color:var(--text-muted)">${(s.risk_score * 100).toFixed(0)}%</span></td><td><span class="badge badge-${cls === "safe" ? "success" : cls === "suspicious" ? "warning" : "danger"}">${s.verdict}</span></td><td>${formatDate(s.scored_at)}</td></tr>`;
+        }).join("")}</tbody></table>`;
+    } catch { document.getElementById("riskScoresTable").innerHTML = '<div class="empty-state"><p>Could not load risk scores.</p></div>'; }
 }
 
 // ══════════════════════════════════════════════════════════
-//  PROFILE
+// PROFILE
 // ══════════════════════════════════════════════════════════
-
 async function loadProfile() {
     try {
-        const profile = await apiFetch("/auth/me");
-
-        const initials = (profile.full_name || profile.username || "U").substring(0, 2).toUpperCase();
+        const profile = await apiFetch("/users/profile");
+        currentUser = profile;
+        // Sidebar
+        const initials = (profile.full_name || "User").split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+        document.getElementById("userAvatarInitials").textContent = initials;
+        document.getElementById("sidebarUserName").textContent = profile.full_name || profile.username;
+        document.getElementById("sidebarUserRole").textContent = profile.role;
+        // Profile page
         document.getElementById("profileAvatar").textContent = initials;
-        document.getElementById("profileName").textContent = profile.full_name || profile.username;
-        document.getElementById("profileEmail").textContent = profile.email || "—";
-        document.getElementById("profilePhone").textContent = profile.phone_number || "—";
-        document.getElementById("profileDOB").textContent = profile.date_of_birth || "—";
-
-        const kycBadge = profile.kyc_status === "verified"
-            ? '<span class="badge badge-success">✅ Verified</span>'
-            : profile.kyc_status === "pending"
-                ? '<span class="badge badge-warning">⏳ Pending</span>'
-                : '<span class="badge badge-danger">❌ Rejected</span>';
-        document.getElementById("profileKYC").innerHTML = kycBadge;
-
+        document.getElementById("profileName").textContent = profile.full_name;
+        document.getElementById("profileEmail").textContent = profile.email;
+        document.getElementById("profilePhone").textContent = profile.phone_number || "Not set";
+        document.getElementById("profileDOB").textContent = profile.date_of_birth || "Not set";
+        document.getElementById("profileKYC").innerHTML = `<span class="badge badge-${profile.kyc_status === "verified" ? "success" : profile.kyc_status === "pending" ? "warning" : "danger"}">${profile.kyc_status}</span>`;
         document.getElementById("profileUserId").textContent = profile.user_id;
         document.getElementById("profileUsername").textContent = profile.username;
         document.getElementById("profileRole").textContent = profile.role;
         document.getElementById("profileStatus").textContent = profile.is_active ? "Active" : "Inactive";
-        document.getElementById("profileCreated").textContent = profile.created_at || "—";
-
+        document.getElementById("profileCreated").textContent = formatDate(profile.created_at);
+        // Pre-fill edit form
         document.getElementById("editFullName").value = profile.full_name || "";
         document.getElementById("editEmail").value = profile.email || "";
         document.getElementById("editPhone").value = profile.phone_number || "";
-    } catch (err) {
-        showToast("Failed to load profile: " + err.message, "error");
-    }
+    } catch (err) { toast("Failed to load profile", "error"); }
 }
 
 async function handleProfileUpdate(e) {
     e.preventDefault();
-    const btn = e.target.querySelector(".btn");
-    if (btn) { btn.classList.add("loading"); btn.disabled = true; }
-
+    const body = {};
+    const fn = document.getElementById("editFullName").value.trim();
+    const em = document.getElementById("editEmail").value.trim();
+    const ph = document.getElementById("editPhone").value.trim();
+    if (fn) body.full_name = fn;
+    if (em) body.email = em;
+    if (ph) body.phone_number = ph;
+    if (!Object.keys(body).length) { toast("No changes to save", "error"); return; }
     try {
-        const body = {};
-        const name = document.getElementById("editFullName").value;
-        const email = document.getElementById("editEmail").value;
-        const phone = document.getElementById("editPhone").value;
-
-        if (name) body.full_name = name;
-        if (email) body.email = email;
-        if (phone) body.phone_number = phone;
-
-        await apiFetch("/users/profile", {
-            method: "PUT",
-            body: JSON.stringify(body),
-        });
-        showToast("Profile updated successfully!", "success");
+        await apiFetch("/users/profile", "PUT", body);
+        toast("Profile updated successfully", "success");
+        addNotification("👤 Profile updated", "info");
         loadProfile();
+    } catch (err) { toast(err.message, "error"); }
+}
+
+async function handlePasswordChange(e) {
+    e.preventDefault();
+    const o = document.getElementById("oldPassword").value;
+    const n = document.getElementById("newPassword").value;
+    const c = document.getElementById("confirmPassword").value;
+    if (n !== c) { toast("New passwords do not match", "error"); return; }
+    if (n.length < 6) { toast("Password must be at least 6 characters", "error"); return; }
+    try {
+        await apiFetch("/users/password", "PUT", { old_password: o, new_password: n });
+        toast("Password changed successfully!", "success");
+        addNotification("🔑 Password changed", "info");
+        document.getElementById("oldPassword").value = "";
+        document.getElementById("newPassword").value = "";
+        document.getElementById("confirmPassword").value = "";
+    } catch (err) { toast(err.message, "error"); }
+}
+
+// ══════════════════════════════════════════════════════════
+// MODALS
+// ══════════════════════════════════════════════════════════
+function showConfirm(title, subtitle, rows, action) {
+    document.getElementById("confirmTitle").textContent = title;
+    document.getElementById("confirmSubtitle").textContent = subtitle;
+    const detailsEl = document.getElementById("confirmDetails");
+    detailsEl.innerHTML = rows.map(r => `<div class="confirm-row ${r.total ? "total" : ""}"><span class="label">${r.label}</span><span class="value">${r.value}</span></div>`).join("");
+    pendingAction = action;
+    document.getElementById("confirmModal").classList.add("open");
+}
+
+async function executePendingAction() {
+    const btn = document.getElementById("confirmActionBtn");
+    btn.classList.add("loading");
+    try {
+        if (pendingAction) await pendingAction();
+        closeModal("confirmModal");
     } catch (err) {
-        showToast(err.message, "error");
+        toast(err.message, "error");
     } finally {
-        if (btn) { btn.classList.remove("loading"); btn.disabled = false; }
+        btn.classList.remove("loading");
     }
+}
+
+function showReceipt(amount, rows) {
+    document.getElementById("receiptAmount").textContent = formatCurrency(Math.abs(amount));
+    document.getElementById("receiptDetails").innerHTML = rows.map(r => `<div class="receipt-row"><span class="label">${r.label}</span><span>${r.value}</span></div>`).join("") + `<div class="receipt-row"><span class="label">Time</span><span>${new Date().toLocaleString()}</span></div>`;
+    document.getElementById("receiptModal").classList.add("open");
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove("open"); pendingAction = null; }
+
+// ══════════════════════════════════════════════════════════
+// NOTIFICATIONS
+// ══════════════════════════════════════════════════════════
+function addNotification(msg, type = "info") {
+    notifications.unshift({ msg, type, time: new Date().toLocaleTimeString() });
+    if (notifications.length > 50) notifications.pop();
+    localStorage.setItem("notifications", JSON.stringify(notifications));
+    renderNotifications();
+}
+
+function renderNotifications() {
+    const list = document.getElementById("notifList");
+    const count = document.getElementById("notifCount");
+    count.textContent = notifications.length || "";
+    if (!notifications.length) { list.innerHTML = '<div class="notif-empty">No notifications yet</div>'; return; }
+    list.innerHTML = notifications.slice(0, 20).map(n => `<div class="notif-item"><span class="notif-icon">${n.type === "success" ? "✅" : n.type === "error" ? "❌" : "ℹ️"}</span><div><div class="notif-msg">${n.msg}</div><div class="notif-time">${n.time}</div></div></div>`).join("");
+}
+
+function toggleNotifications() { document.getElementById("notifPanel").classList.toggle("open"); }
+function clearNotifications() { notifications = []; localStorage.setItem("notifications", "[]"); renderNotifications(); }
+
+// ══════════════════════════════════════════════════════════
+// SESSION TIMER
+// ══════════════════════════════════════════════════════════
+function startSessionTimer() {
+    sessionStart = Date.now();
+    clearInterval(sessionTimerInterval);
+    sessionTimerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - sessionStart) / 1000);
+        const mins = Math.floor(elapsed / 60);
+        const secs = elapsed % 60;
+        const el = document.getElementById("sessionTimerValue");
+        const container = document.getElementById("sessionTimer");
+        el.textContent = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+        container.classList.remove("warning", "critical");
+        if (mins >= 55) container.classList.add("critical");
+        else if (mins >= 45) container.classList.add("warning");
+    }, 1000);
+}
+
+// ══════════════════════════════════════════════════════════
+// THEME
+// ══════════════════════════════════════════════════════════
+function loadTheme() {
+    const theme = localStorage.getItem("theme") || "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+    const btn = document.getElementById("themeToggleBtn");
+    if (btn) btn.textContent = theme === "dark" ? "🌙" : "☀️";
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute("data-theme");
+    const next = current === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("theme", next);
+    document.getElementById("themeToggleBtn").textContent = next === "dark" ? "🌙" : "☀️";
+}
+
+// ══════════════════════════════════════════════════════════
+// UTILITIES
+// ══════════════════════════════════════════════════════════
+async function apiFetch(path, method = "GET", body = null) {
+    const opts = { method, headers: { "Content-Type": "application/json" } };
+    if (authToken) opts.headers["Authorization"] = `Bearer ${authToken}`;
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(`${API}${path}`, opts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+    return data;
+}
+
+function formatCurrency(val) {
+    if (val == null || isNaN(val)) return "₹0.00";
+    const abs = Math.abs(val);
+    const formatted = "₹" + abs.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return val < 0 ? `-${formatted}` : formatted;
+}
+
+function formatDate(d) {
+    if (!d) return "—";
+    try { return new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }); } catch { return d; }
+}
+
+function toast(msg, type = "info") {
+    const container = document.getElementById("toastContainer");
+    const toast = document.createElement("div");
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `<span>${msg}</span><button class="toast-close" onclick="this.parentElement.remove()">✕</button>`;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
+}
+
+// ══════════════════════════════════════════════════════════
+// ADMIN FUNCTIONS
+// ══════════════════════════════════════════════════════════
+
+async function loadAdminDashboard() {
+    try {
+        const data = await apiFetch("/admin/dashboard");
+        document.getElementById("kpiTotalUsers").textContent = data.total_users ?? "—";
+        document.getElementById("kpiActiveUsers").textContent = data.active_users ?? "—";
+        document.getElementById("kpiTotalAccounts").textContent = data.total_accounts ?? "—";
+        document.getElementById("kpiSystemBalance").textContent = formatCurrency(data.system_balance);
+        document.getElementById("kpiTotalTxns").textContent = data.total_transactions ?? "—";
+        document.getElementById("kpiPendingKyc").textContent = data.pending_kyc ?? "—";
+        document.getElementById("kpiFrozenAcct").textContent = data.frozen_accounts ?? "—";
+        document.getElementById("kpiRecent24h").textContent = data.recent_transactions_24h ?? "—";
+    } catch (err) {
+        toast("Failed to load admin dashboard: " + err.message, "error");
+    }
+}
+
+async function loadAdminUsers() {
+    const search = document.getElementById("adminUserSearch")?.value || "";
+    const kyc = document.getElementById("adminKycFilter")?.value || "";
+    try {
+        let url = "/admin/users?limit=200";
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (kyc) url += `&kyc=${encodeURIComponent(kyc)}`;
+        const users = await apiFetch(url);
+        const tbody = document.getElementById("adminUsersTableBody");
+        if (!users.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center">No users found</td></tr>';
+            return;
+        }
+        tbody.innerHTML = users.map(u => `
+            <tr>
+                <td>${u.user_id}</td>
+                <td><strong>${u.username}</strong></td>
+                <td>${u.full_name || "—"}</td>
+                <td>${u.email || "—"}</td>
+                <td><span class="badge badge-${u.kyc_status === 'verified' ? 'success' : u.kyc_status === 'rejected' ? 'danger' : 'warning'}">${u.kyc_status}</span></td>
+                <td>${u.account_count}</td>
+                <td>${formatCurrency(u.total_balance)}</td>
+                <td>
+                    <button class="btn btn-sm ${u.is_active ? 'btn-success' : 'btn-danger'}" onclick="toggleUserActive(${u.user_id})">
+                        ${u.is_active ? '✓ Active' : '✗ Inactive'}
+                    </button>
+                </td>
+                <td>
+                    <select class="form-control form-control-sm" onchange="updateKYC(${u.user_id}, this.value)" style="min-width:100px;">
+                        <option value="pending" ${u.kyc_status === 'pending' ? 'selected' : ''}>Pending</option>
+                        <option value="verified" ${u.kyc_status === 'verified' ? 'selected' : ''}>Verified</option>
+                        <option value="rejected" ${u.kyc_status === 'rejected' ? 'selected' : ''}>Rejected</option>
+                    </select>
+                </td>
+            </tr>
+        `).join("");
+    } catch (err) {
+        toast("Failed to load users: " + err.message, "error");
+    }
+}
+
+async function loadAdminAccounts() {
+    const search = document.getElementById("adminAcctSearch")?.value || "";
+    const status = document.getElementById("adminAcctStatusFilter")?.value || "";
+    try {
+        let url = "/admin/accounts?limit=200";
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (status) url += `&status=${encodeURIComponent(status)}`;
+        const accounts = await apiFetch(url);
+        const tbody = document.getElementById("adminAcctTableBody");
+        if (!accounts.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center">No accounts found</td></tr>';
+            return;
+        }
+        tbody.innerHTML = accounts.map(a => `
+            <tr>
+                <td><strong>${a.account_number}</strong></td>
+                <td>${a.account_type}</td>
+                <td>${a.full_name || a.username}</td>
+                <td>${formatCurrency(a.current_balance)}</td>
+                <td><span class="badge badge-${a.status === 'active' ? 'success' : a.status === 'frozen' ? 'warning' : 'danger'}">${a.status}</span></td>
+                <td>${formatDate(a.created_at)}</td>
+                <td>
+                    ${a.status !== 'closed' ? `
+                        <button class="btn btn-sm ${a.status === 'frozen' ? 'btn-success' : 'btn-warning'}" onclick="adminFreezeAccount(${a.account_id})">
+                            ${a.status === 'frozen' ? '🔓 Unfreeze' : '🔒 Freeze'}
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="adminCloseAccount(${a.account_id})" style="margin-left:4px;">❌ Close</button>
+                    ` : '<span class="text-muted">Closed</span>'}
+                </td>
+            </tr>
+        `).join("");
+    } catch (err) {
+        toast("Failed to load accounts: " + err.message, "error");
+    }
+}
+
+async function loadAdminTransactions() {
+    const search = document.getElementById("adminTxnSearch")?.value || "";
+    const type = document.getElementById("adminTxnTypeFilter")?.value || "";
+    try {
+        let url = "/admin/transactions?limit=200";
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (type) url += `&type=${encodeURIComponent(type)}`;
+        const txns = await apiFetch(url);
+        const tbody = document.getElementById("adminTxnTableBody");
+        if (!txns.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center">No transactions found</td></tr>';
+            return;
+        }
+        tbody.innerHTML = txns.map(t => `
+            <tr>
+                <td style="font-family:monospace;font-size:0.8em;">${(t.reference_id || '—').substring(0, 12)}…</td>
+                <td>${formatDate(t.transaction_date)}</td>
+                <td><span class="badge badge-${t.type === 'DEPOSIT' ? 'success' : t.type === 'WITHDRAWAL' ? 'danger' : 'info'}">${t.type}</span></td>
+                <td>${t.full_name || t.username}</td>
+                <td>${t.account_number}</td>
+                <td>${formatCurrency(t.amount)}</td>
+                <td>${formatCurrency(t.balance_after)}</td>
+                <td><span class="badge badge-${t.status === 'completed' ? 'success' : 'warning'}">${t.status}</span></td>
+            </tr>
+        `).join("");
+    } catch (err) {
+        toast("Failed to load transactions: " + err.message, "error");
+    }
+}
+
+async function loadAdminAuditLogs() {
+    try {
+        const logs = await apiFetch("/admin/audit-logs?limit=200");
+        const tbody = document.getElementById("adminAuditTableBody");
+        if (!logs.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center">No audit logs found</td></tr>';
+            return;
+        }
+        tbody.innerHTML = logs.map(l => `
+            <tr>
+                <td>${l.log_id}</td>
+                <td>${l.entity_type || "—"}</td>
+                <td>${l.action_type || "—"}</td>
+                <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;">${l.old_value || "—"}</td>
+                <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;">${l.new_value || "—"}</td>
+                <td>${l.performed_by || "—"}</td>
+                <td>${l.ip_address || "—"}</td>
+                <td>${formatDate(l.created_at)}</td>
+            </tr>
+        `).join("");
+    } catch (err) {
+        toast("Failed to load audit logs: " + err.message, "error");
+    }
+}
+
+// ── Admin Actions ────────────────────────────────────────
+
+async function toggleUserActive(userId) {
+    try {
+        const res = await apiFetch(`/admin/users/${userId}/toggle-active`, "PATCH");
+        toast(res.message, "success");
+        loadAdminUsers();
+        loadAdminDashboard();
+    } catch (err) {
+        toast(err.message, "error");
+    }
+}
+
+async function updateKYC(userId, status) {
+    try {
+        const res = await apiFetch(`/admin/users/${userId}/kyc?status=${encodeURIComponent(status)}`, "PATCH");
+        toast(res.message, "success");
+        loadAdminDashboard();
+    } catch (err) {
+        toast(err.message, "error");
+    }
+}
+
+async function adminFreezeAccount(accountId) {
+    try {
+        const res = await apiFetch(`/admin/accounts/${accountId}/freeze`, "PATCH");
+        toast(res.message, "success");
+        loadAdminAccounts();
+        loadAdminDashboard();
+    } catch (err) {
+        toast(err.message, "error");
+    }
+}
+
+async function adminCloseAccount(accountId) {
+    if (!confirm("Are you sure you want to close this account? This action cannot be undone.")) return;
+    try {
+        const res = await apiFetch(`/admin/accounts/${accountId}/close`, "PATCH");
+        toast(res.message, "success");
+        loadAdminAccounts();
+        loadAdminDashboard();
+    } catch (err) {
+        toast(err.message, "error");
+    }
+}
+
+async function adminCreateAccount(e) {
+    e.preventDefault();
+    const btn = document.getElementById("adminCreateAcctBtn");
+    btn.classList.add("loading");
+    try {
+        const res = await apiFetch("/admin/accounts/create", "POST", {
+            user_id: parseInt(document.getElementById("adminNewAcctUserId").value),
+            account_type: document.getElementById("adminNewAcctType").value,
+            currency: document.getElementById("adminNewAcctCurrency").value,
+        });
+        toast(res.message, "success");
+        addNotification("✅ " + res.message, "success");
+        document.getElementById("adminNewAcctUserId").value = "";
+        loadAdminAccounts();
+        loadAdminDashboard();
+    } catch (err) {
+        toast(err.message, "error");
+    } finally {
+        btn.classList.remove("loading");
+    }
+}
+
+// ── Admin Search Debounce ────────────────────────────────
+function debounceAdminUserSearch() {
+    clearTimeout(adminSearchTimers.users);
+    adminSearchTimers.users = setTimeout(() => loadAdminUsers(), 400);
+}
+
+function debounceAdminAcctSearch() {
+    clearTimeout(adminSearchTimers.accounts);
+    adminSearchTimers.accounts = setTimeout(() => loadAdminAccounts(), 400);
+}
+
+function debounceAdminTxnSearch() {
+    clearTimeout(adminSearchTimers.transactions);
+    adminSearchTimers.transactions = setTimeout(() => loadAdminTransactions(), 400);
 }

@@ -8,7 +8,7 @@
 ![GPT](https://img.shields.io/badge/NL--to--SQL-LedgerGPT-purple?style=flat)
 ![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B?style=flat&logo=streamlit&logoColor=white)
 
-A **full-stack banking application** with a FastAPI REST API, real-time web frontend, AI-powered fraud detection, and a double-entry accounting ledger built on MySQL.
+A **production-grade banking application** featuring a 7-page web interface, FastAPI REST API, AI-powered fraud detection, double-entry accounting on MySQL, and Indian Rupee (₹) currency support.
 
 ---
 
@@ -17,15 +17,18 @@ A **full-stack banking application** with a FastAPI REST API, real-time web fron
 | Category | Feature |
 |----------|---------|
 | **Core Banking** | Double-entry ledger, deposits, withdrawals, fund transfers, account statements |
-| **REST API** | 15+ FastAPI endpoints with JWT authentication and role-based access control |
-| **Web Frontend** | Modern dark-mode SPA with Chart.js dashboards and real-time updates |
-| **AI Fraud Detection** | Isolation Forest model scores every transaction for anomaly risk (0.0 – 1.0) |
+| **Account Management** | Open, freeze/unfreeze, and close accounts with confirmation workflows |
+| **Fund Transfers** | Own-account & external transfers, saved beneficiary manager |
+| **REST API** | 20+ FastAPI endpoints with JWT authentication and role-based access |
+| **7-Page Web App** | Dashboard, Accounts, Fund Transfer, Deposit/Withdraw, History, AI Insights, Profile |
+| **AI Fraud Detection** | Isolation Forest model scores transactions for anomaly risk (0.0 – 1.0) |
 | **Spending Analytics** | Predictive spending forecasts using linear regression |
 | **LedgerGPT** | Natural language to SQL auditor — ask questions in plain English |
 | **Live Dashboard** | Streamlit-powered monitoring with Plotly charts |
-| **Security** | bcrypt password hashing, JWT tokens, PIN verification, RBAC (Admin/Auditor/Customer) |
+| **Security** | bcrypt hashing, JWT tokens, password change, RBAC (Admin/Auditor/Customer) |
 | **ACID Compliance** | Transaction blocks with `COMMIT`/`ROLLBACK` and row-level locking |
 | **Audit Trails** | Immutable JSON logs tracking every change to user and account data |
+| **Indian Localization** | ₹ (INR) currency formatting, Indian seed users, `en-IN` number format |
 
 ---
 
@@ -35,7 +38,7 @@ A **full-stack banking application** with a FastAPI REST API, real-time web fron
 FinTech_Banking_System/
 │
 ├── api/                            # 🔥 FastAPI REST API (Backend)
-│   ├── main.py                     # App entry point, CORS, auth routes, router setup
+│   ├── main.py                     # App entry point, CORS, router setup
 │   ├── config.py                   # Environment variable configuration
 │   ├── database.py                 # MySQL connection pool + FastAPI dependency
 │   ├── schemas.py                  # Pydantic request/response models
@@ -43,14 +46,14 @@ FinTech_Banking_System/
 │   ├── .env                        # Environment variables (DB creds, JWT secret)
 │   ├── requirements.txt            # Python dependencies
 │   └── routes/
-│       ├── users.py                # User profile endpoints
-│       ├── accounts.py             # Account management endpoints
+│       ├── users.py                # Profile + password change endpoints
+│       ├── accounts.py             # Account CRUD, freeze, close endpoints
 │       ├── transactions.py         # Deposit / Withdraw / Transfer endpoints
 │       └── analytics.py            # AI risk scores & spending analytics
 │
-├── frontend/                       # 🌐 Web Frontend (SPA)
-│   ├── index.html                  # Single-page application (6 views)
-│   ├── style.css                   # Premium dark glassmorphism design system
+├── frontend/                       # 🌐 Web Frontend (7-Page SPA)
+│   ├── index.html                  # 7-page application (Dashboard, Accounts, etc.)
+│   ├── style.css                   # Premium dark/light glassmorphism design
 │   └── app.js                      # Client-side logic, API calls, Chart.js
 │
 ├── schema/                         # 🗄️ Database Schema
@@ -59,26 +62,24 @@ FinTech_Banking_System/
 │
 ├── procedures/                     # ⚙️ Stored Procedures
 │   ├── 01_transactions.sql         # sp_perform_transfer, sp_deposit_cash
-│   └── 02_accounts.sql             # sp_create_account, sp_get_balance, sp_list_accounts
+│   └── 02_accounts.sql             # sp_create_account, sp_get_balance
 │
 ├── triggers/                       # 🔒 Database Triggers
 │   ├── 01_audit_logging.sql        # Audit trail for user/account changes
 │   └── 02_fraud_checks.sql         # Prevent negative balances, flag high-value txns
 │
 ├── views/                          # 📊 SQL Views
-│   └── 01_financial_reports.sql    # Balance sheet, ledger integrity, customer statements
+│   └── 01_financial_reports.sql    # Balance sheet, ledger integrity, statements
 │
 ├── ai_worker/                      # 🤖 AI Anomaly Detection Worker
 │   ├── ai_engine.py                # Isolation Forest model
 │   ├── worker.py                   # Background polling loop
-│   ├── config.py                   # Worker configuration
 │   └── requirements.txt            # Dependencies
 │
 ├── ledger_gpt/                     # 💬 Natural Language SQL Auditor
 │   ├── app.py                      # Interactive CLI
 │   ├── query_engine.py             # NL-to-SQL engine (GPT + Templates)
 │   ├── schema_context.py           # DB schema context for LLM
-│   ├── config.py                   # Configuration
 │   └── requirements.txt            # Dependencies
 │
 ├── dashboard/                      # 📈 Streamlit Monitoring Dashboard
@@ -87,7 +88,7 @@ FinTech_Banking_System/
 │   └── requirements.txt            # Dependencies
 │
 ├── data/
-│   └── 01_seed_data.sql            # Sample data for testing
+│   └── 01_seed_data.sql            # Indian seed data (Arjun, Priya, Rahul)
 │
 └── scripts/
     └── setup.bat                   # One-click database installer
@@ -107,8 +108,6 @@ FinTech_Banking_System/
 
 ### Step 1 — Database Setup
 
-Run the automated setup script or manually load the SQL files:
-
 ```powershell
 # Option A: Automated (Windows)
 cd scripts
@@ -124,7 +123,7 @@ mysql -u root -p fintech_banking < triggers/02_fraud_checks.sql
 mysql -u root -p fintech_banking < views/01_financial_reports.sql
 ```
 
-Seed sample data (optional):
+Load seed data (3 Indian users with INR accounts):
 ```powershell
 mysql -u root -p fintech_banking < data/01_seed_data.sql
 ```
@@ -147,7 +146,7 @@ pip install -r api/requirements.txt
 ```
 
 Configure the `.env` file at `api/.env`:
-```env
+```envcd
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
@@ -167,11 +166,9 @@ cd api
 ..\api_venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-The following are now available:
-
 | URL | Description |
 |-----|-------------|
-| http://localhost:8000 | 🌐 Web Application (Frontend) |
+| http://localhost:8000 | 🌐 Web Application (7-Page Frontend) |
 | http://localhost:8000/docs | 📖 Swagger API Documentation |
 | http://localhost:8000/redoc | 📘 ReDoc API Documentation |
 | http://localhost:8000/health | ❤️ Health Check Endpoint |
@@ -180,7 +177,7 @@ The following are now available:
 
 ### Step 4 — AI Worker (Optional)
 
-Runs in the background and scores transactions for fraud risk:
+Scores transactions for fraud risk in the background:
 
 ```powershell
 cd ai_worker
@@ -190,9 +187,9 @@ python worker.py
 
 Output:
 ```
-🟢 TXN #1  |  $1,000.00 | Score: 0.1200 |     SAFE
-🟡 TXN #4  |  $8,000.00 | Score: 0.6500 |     SUSPICIOUS
-🔴 TXN #5  | $15,000.00 | Score: 0.9200 |     CRITICAL
+🟢 TXN #1  |  ₹50,000.00 | Score: 0.1200 |     SAFE
+🟡 TXN #4  |  ₹4,00,000  | Score: 0.6500 |     SUSPICIOUS
+🔴 TXN #5  | ₹15,00,000  | Score: 0.9200 |     CRITICAL
 ```
 
 ---
@@ -208,16 +205,14 @@ python app.py
 ```
 
 ```
-ledger> show all transactions for alice
-ledger> find transfers over $500
+ledger> show all transactions for arjun
+ledger> find transfers over ₹5000
 ledger> show flagged transactions
 ```
 
 ---
 
 ### Step 6 — Streamlit Dashboard (Optional)
-
-Visual monitoring with charts:
 
 ```powershell
 cd dashboard
@@ -229,6 +224,30 @@ Opens at http://localhost:8501.
 
 ---
 
+## 🌐 Frontend — 7 Pages
+
+The web app features a modern **dark/light glassmorphism design** with a responsive sidebar layout:
+
+| Page | Features |
+|------|----------|
+| **📊 Dashboard** | KPI cards (total balance, accounts, income, expenses), balance bar chart, spending doughnut, recent activity feed |
+| **💰 My Accounts** | Account cards with type badges, create new accounts (INR default), account detail panel with mini-statement, freeze/unfreeze, close account |
+| **🔄 Fund Transfer** | Own-account transfers, external transfers, saved beneficiary manager (localStorage) |
+| **💳 Deposit / Withdraw** | Deposit and withdrawal forms with confirmation modals + receipt generation |
+| **📜 History** | Search, type/category filters, date range, paginated table (20/page), CSV export, category tags |
+| **🤖 AI Insights** | Spending prediction, monthly trend chart, summary KPIs, risk score table with visual bars |
+| **👤 My Profile** | View/edit personal info, change password, KYC status badge, account membership details |
+
+**Additional UI Features:**
+- 🌙/☀️ Dark/Light theme toggle
+- 🔔 Notification center
+- ⏱️ Session timer
+- ✅ Confirmation modals for all destructive actions
+- 🧾 Transaction receipts
+- 📦 Toast notifications
+
+---
+
 ## 📡 API Reference
 
 ### Authentication
@@ -237,7 +256,7 @@ Opens at http://localhost:8501.
 |--------|----------|-------------|
 | `POST` | `/auth/register` | Register a new user |
 | `POST` | `/auth/login` | Login and receive JWT token |
-| `GET` | `/auth/me` | Get current user profile |
+| `GET` | `/auth/me` | Get current user from token |
 
 ### User Management
 
@@ -245,6 +264,7 @@ Opens at http://localhost:8501.
 |--------|----------|-------------|
 | `GET` | `/users/profile` | Get user profile |
 | `PUT` | `/users/profile` | Update name, email, phone |
+| `PUT` | `/users/password` | Change password (old + new) |
 | `PUT` | `/users/pin` | Set transaction PIN |
 
 ### Accounts
@@ -253,8 +273,11 @@ Opens at http://localhost:8501.
 |--------|----------|-------------|
 | `POST` | `/accounts/` | Create new account (savings/checking/wallet) |
 | `GET` | `/accounts/` | List all user accounts |
+| `GET` | `/accounts/{id}` | Account detail with mini-statement |
 | `GET` | `/accounts/{id}/balance` | Get account balance |
-| `GET` | `/accounts/{id}/statement` | Get account statement |
+| `GET` | `/accounts/{id}/statement` | Get full account statement |
+| `PATCH` | `/accounts/{id}/freeze` | Toggle freeze/unfreeze |
+| `PATCH` | `/accounts/{id}/close` | Close account (requires ₹0 balance) |
 
 ### Transactions
 
@@ -263,15 +286,15 @@ Opens at http://localhost:8501.
 | `POST` | `/transactions/deposit` | Deposit funds |
 | `POST` | `/transactions/withdraw` | Withdraw funds |
 | `POST` | `/transactions/transfer` | Transfer between accounts |
-| `GET` | `/transactions/history` | Get transaction history (with filters) |
+| `GET` | `/transactions/history` | Transaction history (with filters) |
 
 ### AI Analytics
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/analytics/risk-scores` | AI fraud risk scores for transactions |
+| `GET` | `/analytics/risk-scores` | AI fraud risk scores |
 | `GET` | `/analytics/spending-prediction` | Predicted next month's spending |
-| `GET` | `/analytics/spending-summary` | Income, expenses, net flow summary |
+| `GET` | `/analytics/spending-summary` | Income, expenses, net flow |
 
 > All endpoints except `/auth/register`, `/auth/login`, and `/health` require a valid JWT token in the `Authorization: Bearer <token>` header.
 
@@ -298,30 +321,16 @@ The Isolation Forest model analyzes 4 features per transaction:
 
 ---
 
-## 🌐 Frontend Features
-
-The web frontend is a **single-page application** with a premium dark glassmorphism design:
-
-- **Auth Page** — Login/register with animated tab switching
-- **Dashboard** — KPI cards (total balance, accounts, income, expenses) + Chart.js balance chart + recent activity feed
-- **Accounts** — Visual account cards with type badges (savings/checking/wallet), create new accounts
-- **Transactions** — Three-panel layout for deposit, withdraw, and transfer operations
-- **History** — Sortable, filterable transaction table with type badges and status indicators
-- **AI Insights** — Spending prediction with trend analysis, monthly summary KPIs, risk score table with visual bars
-- **Profile** — View/edit profile information, account details, KYC status
-
----
-
 ## 💡 Core Concepts
 
 ### Double-Entry Ledger
-Every transaction creates equal debit and credit entries. The system's net balance is always zero:
+Every transaction creates equal debit and credit entries:
 
 ```
-Transfer $100: Alice → Bob
-├── Entry 1: Debit  Alice  (-$100)
-└── Entry 2: Credit Bob    (+$100)
-    Net System Change: $0
+Transfer ₹5,000: Arjun → Priya
+├── Entry 1: Debit  Arjun  (-₹5,000)
+└── Entry 2: Credit Priya  (+₹5,000)
+    Net System Change: ₹0
 ```
 
 ### Atomic Transfers
@@ -337,9 +346,11 @@ The `vw_ledger_integrity_check` view monitors the system. It should always retur
 | Layer | Mechanism |
 |-------|-----------|
 | **Passwords** | bcrypt with 12-round salt |
+| **Password Change** | Requires old password verification |
 | **Sessions** | JWT tokens with configurable expiration |
 | **Authorization** | Role-based access control (customer, admin, auditor) |
-| **Transactions** | Optional PIN verification |
+| **Transactions** | Confirmation modals + optional PIN verification |
+| **Account Safety** | Freeze/unfreeze toggle, close requires ₹0 balance |
 | **Database** | Triggers prevent negative balances, audit logs track all changes |
 | **API** | CORS whitelist, input validation via Pydantic |
 
@@ -348,13 +359,21 @@ The `vw_ledger_integrity_check` view monitors the system. It should always retur
 ## 🧪 Testing
 
 ### Seed Data
+The seed data creates 3 Indian users:
+
+| Username | Full Name | Accounts | Initial Balance |
+|----------|-----------|----------|-----------------|
+| `arjun` | Arjun Sharma | Savings + Checking (INR) | ₹50,000 |
+| `priya` | Priya Patel | Savings (INR) | ₹25,000 |
+| `rahul` | Rahul Verma | Wallet (INR) | ₹0 (receives transfers) |
+
 ```sql
 SOURCE data/01_seed_data.sql;
 ```
 
 ### Verify via SQL
 ```sql
-SELECT * FROM vw_customer_statement WHERE username = 'alice';
+SELECT * FROM vw_customer_statement WHERE username = 'arjun';
 SELECT * FROM vw_balance_sheet;
 SELECT * FROM transaction_risk_scores;
 SELECT * FROM vw_flagged_transactions;
@@ -368,19 +387,25 @@ Invoke-RestMethod -Uri http://localhost:8000/health
 # Register a user
 Invoke-RestMethod -Uri http://localhost:8000/auth/register -Method POST `
   -ContentType "application/json" `
-  -Body '{"username":"testuser","password":"test123","email":"test@example.com","full_name":"Test User","date_of_birth":"2000-01-01"}'
+  -Body '{"username":"punit","password":"password123","email":"punit@example.com","full_name":"Punit Kumar","date_of_birth":"2000-01-15","phone_number":"+91 99999 88888"}'
 
 # Login
 $response = Invoke-RestMethod -Uri http://localhost:8000/auth/login -Method POST `
   -ContentType "application/json" `
-  -Body '{"username":"testuser","password":"test123"}'
+  -Body '{"username":"punit","password":"password123"}'
 $token = $response.access_token
 
-# Create account
+# Create account (INR)
 Invoke-RestMethod -Uri http://localhost:8000/accounts/ -Method POST `
   -ContentType "application/json" `
   -Headers @{Authorization="Bearer $token"} `
-  -Body '{"account_type":"savings","currency":"USD"}'
+  -Body '{"account_type":"savings","currency":"INR"}'
+
+# Change password
+Invoke-RestMethod -Uri http://localhost:8000/users/password -Method PUT `
+  -ContentType "application/json" `
+  -Headers @{Authorization="Bearer $token"} `
+  -Body '{"old_password":"password123","new_password":"newpass456"}'
 ```
 
 ---
@@ -395,10 +420,11 @@ Invoke-RestMethod -Uri http://localhost:8000/accounts/ -Method POST `
 | Data Validation | Pydantic |
 | AI/ML | scikit-learn (Isolation Forest), NumPy |
 | Predictive Analytics | Linear Regression |
-| Frontend | Vanilla HTML/CSS/JS |
-| Charts | Chart.js |
+| Frontend | Vanilla HTML/CSS/JS (7-page SPA) |
+| Charts | Chart.js 4.x |
 | NL-to-SQL | OpenAI GPT / Template Engine |
 | Monitoring Dashboard | Streamlit + Plotly |
+| Currency | Indian Rupee (₹ / INR) |
 
 ---
 
