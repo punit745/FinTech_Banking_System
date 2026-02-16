@@ -42,6 +42,17 @@ class UserLogin(BaseModel):
     password: str
 
 
+class EmployeeLogin(BaseModel):
+    employee_id: str = Field(..., min_length=3, max_length=20)
+    password: str = Field(..., min_length=6, max_length=128)
+
+
+class AdminAccountCreate(BaseModel):
+    user_id: int
+    account_type: str = Field(..., pattern="^(savings|checking|wallet)$")
+    currency: str = Field(default="INR", max_length=3)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -73,6 +84,11 @@ class UserProfileUpdate(BaseModel):
 
 class PinUpdate(BaseModel):
     new_pin: str = Field(..., min_length=4, max_length=6, pattern=r"^\d{4,6}$")
+
+
+class PasswordChange(BaseModel):
+    old_password: str = Field(..., min_length=6)
+    new_password: str = Field(..., min_length=6, max_length=128)
 
 
 # ── Account Schemas ────────────────────────────────────────

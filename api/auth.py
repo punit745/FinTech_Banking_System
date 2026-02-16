@@ -67,13 +67,17 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     """
     FastAPI dependency: Extract and validate the current user from the JWT.
     Returns dict with user_id, username, role.
+    For employees: includes employee_id instead of numeric user_id.
     """
     payload = decode_token(credentials.credentials)
-    return {
+    result = {
         "user_id": payload["sub"],
         "username": payload["username"],
         "role": payload["role"],
     }
+    if payload.get("employee_id"):
+        result["employee_id"] = payload["employee_id"]
+    return result
 
 
 def require_role(*roles):
@@ -169,6 +173,61 @@ def authenticate_user(username: str, password: str) -> dict:
     finally:
         if conn.is_connected():
             conn.close()
+
+
+def authenticate_employee(employee_id: str, password: str) -> dict:
+    """Authenticate an employee by employee_id and password."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT employee_id, password_hash, full_name, department, is_active FROM employees WHERE employee_id = %s",
+            (employee_id,),
+        )
+        employee = cursor.fetchone()
+        cursor.close()
+
+        if not employee:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid employee ID or password",
+            )
+
+        if not employee["is_active"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Employee account is deactivated",
+            )
+
+        if not verify_password(password, employee["password_hash"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid employee ID or password",
+            )
+
+        return {
+            "employee_id": employee["employee_id"],
+            "full_name": employee["full_name"],
+            "department": employee["department"],
+            "role": "employee",
+        }
+    finally:
+        if conn.is_connected():
+            conn.close()
+
+
+def create_employee_token(employee_id: str, full_name: str, department: str) -> str:
+    """Create a JWT access token for an employee."""
+    payload = {
+        "sub": employee_id,
+        "username": full_name,
+        "role": "employee",
+        "employee_id": employee_id,
+        "department": department,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS),
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
 def get_user_profile(user_id: int) -> dict:
