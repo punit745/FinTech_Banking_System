@@ -122,12 +122,14 @@ class DepositRequest(BaseModel):
     account_id: int
     amount: float = Field(..., gt=0, description="Amount to deposit (must be positive)")
     description: Optional[str] = "Cash Deposit"
+    password: str
 
 
 class WithdrawRequest(BaseModel):
     account_id: int
     amount: float = Field(..., gt=0, description="Amount to withdraw (must be positive)")
     description: Optional[str] = "Cash Withdrawal"
+    password: str
 
 
 class TransferRequest(BaseModel):
@@ -135,6 +137,12 @@ class TransferRequest(BaseModel):
     receiver_account_id: int
     amount: float = Field(..., gt=0, description="Amount to transfer (must be positive)")
     description: Optional[str] = "Fund Transfer"
+    password: str
+
+
+class BalanceCheckRequest(BaseModel):
+    account_id: int
+    password: str
 
 
 class TransactionResponse(BaseModel):

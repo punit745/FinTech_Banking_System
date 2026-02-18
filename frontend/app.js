@@ -83,18 +83,16 @@ function showApp() {
 // ══════════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════════
-function switchAuthTab(tab) {
-    document.querySelectorAll(".auth-tab").forEach(t => t.classList.remove("active"));
+// ══════════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════════
+function switchAuthType(type) {
     document.querySelectorAll(".auth-form").forEach(f => f.classList.remove("active"));
-    const tabs = document.querySelectorAll(".auth-tab");
-    if (tab === "login") {
-        tabs[0].classList.add("active");
+    if (type === "login") {
         document.getElementById("loginForm").classList.add("active");
-    } else if (tab === "employee") {
-        tabs[1].classList.add("active");
+    } else if (type === "employee") {
         document.getElementById("employeeLoginForm").classList.add("active");
     } else {
-        tabs[2].classList.add("active");
         document.getElementById("registerForm").classList.add("active");
     }
 }
@@ -239,7 +237,7 @@ async function loadDashboard() {
         const greeting = hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
         document.getElementById("dashboardGreeting").textContent = `${greeting}, ${currentUser?.full_name?.split(" ")[0] || "User"} 👋`;
 
-        // Balance chart
+        // Balance chart - Initially hidden or zero
         renderBalanceChart(accounts);
         // Doughnut
         renderSpendingDoughnut(summary);
@@ -247,6 +245,57 @@ async function loadDashboard() {
         loadRecentActivity();
     } catch (err) {
         toast("Failed to load dashboard", "error");
+    }
+}
+
+let secureCallback = null;
+
+function checkBalanceFlow() {
+    secureCallback = async (password) => {
+        // Fetch balance for all active accounts
+        // We need to iterate or fetch a summary. The requirement implies checking "Total Balance".
+        // Or we can just calculate it if we update the endpoint to return it.
+        // But let's assume we want to update the UI with the real value.
+        // Since we have multiple accounts, we should probably fetch them one by one or create a bulk endpoint.
+        // For simplicity, let's fetch the first active account's balance to show *something*,
+        // or re-fetch the account list but this time via a POST endpoint? 
+        // No, the `list_accounts` is GET.
+        // Let's iterate and fetch balance for each (naive but works) OR just update the KPI with the result of one.
+        
+        // Actually, to update "Total Balance", we need balances of all accounts.
+        // Calling POST /accounts/balance for each account is feasible if N is small.
+        let total = 0;
+        for (const acct of allAccounts) {
+            if (acct.status === "active") {
+                const res = await apiFetch("/accounts/balance", "POST", { account_id: acct.account_id, password });
+                total += res.current_balance;
+                // Update the local account object
+                acct.current_balance = res.current_balance;
+            }
+        }
+        
+        animateKPI("kpiTotalBalance", formatCurrency(total));
+        renderBalanceChart(allAccounts); // Refresh chart with real data
+        toast("Balance revealed", "success");
+    };
+    
+    document.getElementById("securePasswordInput").value = "";
+    document.getElementById("secureModal").classList.add("open");
+}
+
+async function handleSecureSubmit() {
+    const pwd = document.getElementById("securePasswordInput").value;
+    if (!pwd) { toast("Password is required", "error"); return; }
+    
+    const btn = document.getElementById("secureSubmitBtn");
+    btn.classList.add("loading");
+    try {
+        if (secureCallback) await secureCallback(pwd);
+        closeModal("secureModal");
+    } catch (err) {
+        toast(err.message, "error");
+    } finally {
+        btn.classList.remove("loading");
     }
 }
 
@@ -401,13 +450,16 @@ function handleOwnTransfer(e) {
     const to = document.getElementById("ownTransferTo").value;
     const amount = parseFloat(document.getElementById("ownTransferAmount").value);
     const desc = document.getElementById("ownTransferDesc").value || "Own Account Transfer";
+    const pwd = document.getElementById("ownTransferPwd").value;
     if (from === to) { toast("From and To accounts must be different", "error"); return; }
+    if (!pwd) { toast("Password is required", "error"); return; }
+    
     showConfirm("Confirm Transfer", "Review the transfer details below.", [
         { label: "From Account", value: `ID ${from}` },
         { label: "To Account", value: `ID ${to}` },
         { label: "Amount", value: formatCurrency(amount), total: true },
     ], async () => {
-        await apiFetch("/transactions/transfer", "POST", { sender_account_id: parseInt(from), receiver_account_id: parseInt(to), amount, description: desc });
+        await apiFetch("/transactions/transfer", "POST", { sender_account_id: parseInt(from), receiver_account_id: parseInt(to), amount, description: desc, password: pwd });
         showReceipt(amount, [{ label: "Type", value: "Own Transfer" }, { label: "From", value: `Account ${from}` }, { label: "To", value: `Account ${to}` }, { label: "Description", value: desc }]);
         addNotification(`🔄 Transferred ${formatCurrency(amount)}`, "success");
         loadTransferSelects();
@@ -421,15 +473,19 @@ function handleExternalTransfer(e) {
     const to = parseInt(document.getElementById("extTransferTo").value);
     const amount = parseFloat(document.getElementById("extTransferAmount").value);
     const desc = document.getElementById("extTransferDesc").value || "Fund Transfer";
+    const pwd = document.getElementById("extTransferPwd").value;
+    if (!pwd) { toast("Password is required", "error"); return; }
+
     showConfirm("Confirm External Transfer", "You are sending money to another account.", [
         { label: "From Account", value: `ID ${from}` },
         { label: "Receiver Account ID", value: to },
         { label: "Amount", value: formatCurrency(amount), total: true },
     ], async () => {
-        await apiFetch("/transactions/transfer", "POST", { sender_account_id: parseInt(from), receiver_account_id: to, amount, description: desc });
+        await apiFetch("/transactions/transfer", "POST", { sender_account_id: parseInt(from), receiver_account_id: to, amount, description: desc, password: pwd });
         showReceipt(amount, [{ label: "Type", value: "External Transfer" }, { label: "Receiver", value: `Account ${to}` }, { label: "Description", value: desc }]);
         addNotification(`📤 Sent ${formatCurrency(amount)} to Account ${to}`, "success");
         loadTransferSelects();
+        document.querySelector('#page-transfer form').reset();
     });
 }
 
@@ -495,14 +551,18 @@ function handleDeposit(e) {
     const acctId = parseInt(document.getElementById("depositAccount").value);
     const amount = parseFloat(document.getElementById("depositAmount").value);
     const desc = document.getElementById("depositDesc").value || "Deposit";
+    const pwd = document.getElementById("depositPwd").value;
+    if (!pwd) { toast("Password is required", "error"); return; }
+    
     showConfirm("Confirm Deposit", "Review the deposit details.", [
         { label: "Account", value: `ID ${acctId}` },
         { label: "Amount", value: formatCurrency(amount), total: true },
     ], async () => {
-        await apiFetch("/transactions/deposit", "POST", { account_id: acctId, amount, description: desc });
+        await apiFetch("/transactions/deposit", "POST", { account_id: acctId, amount, description: desc, password: pwd });
         showReceipt(amount, [{ label: "Type", value: "Deposit" }, { label: "Account", value: `ID ${acctId}` }, { label: "Description", value: desc }]);
         addNotification(`💵 Deposited ${formatCurrency(amount)}`, "success");
         loadTransactionSelects();
+        document.querySelector('#page-transactions form').reset();
     });
 }
 
@@ -511,14 +571,18 @@ function handleWithdraw(e) {
     const acctId = parseInt(document.getElementById("withdrawAccount").value);
     const amount = parseFloat(document.getElementById("withdrawAmount").value);
     const desc = document.getElementById("withdrawDesc").value || "Withdrawal";
+    const pwd = document.getElementById("withdrawPwd").value;
+    if (!pwd) { toast("Password is required", "error"); return; }
+
     showConfirm("Confirm Withdrawal", "Review the withdrawal details.", [
         { label: "Account", value: `ID ${acctId}` },
         { label: "Amount", value: formatCurrency(amount), total: true },
     ], async () => {
-        await apiFetch("/transactions/withdraw", "POST", { account_id: acctId, amount, description: desc });
+        await apiFetch("/transactions/withdraw", "POST", { account_id: acctId, amount, description: desc, password: pwd });
         showReceipt(amount, [{ label: "Type", value: "Withdrawal" }, { label: "Account", value: `ID ${acctId}` }, { label: "Description", value: desc }]);
         addNotification(`🏧 Withdrew ${formatCurrency(amount)}`, "success");
         loadTransactionSelects();
+        document.querySelector('#page-transactions form').reset();
     });
 }
 
@@ -700,6 +764,22 @@ async function loadProfile() {
         document.getElementById("editEmail").value = profile.email || "";
         document.getElementById("editPhone").value = profile.phone_number || "";
     } catch (err) { toast("Failed to load profile", "error"); }
+    
+    // Load accounts into profile
+    try {
+        const accounts = await apiFetch("/accounts/"); // This returns masked balance, ok for profile
+        const container = document.getElementById("profileAccountsList");
+        if (!container) return; // In case element is missing
+        if (!accounts.length) { container.innerHTML = '<div class="empty-state"><p>No accounts found.</p></div>'; return; }
+        
+        container.innerHTML = accounts.map(a => `
+               <div class="account-card" style="cursor:default;">
+                   <span class="account-type-badge ${a.account_type}">${a.account_type}</span>
+                   <div class="balance">${formatCurrency(a.current_balance)}</div>
+                   <div class="account-number"><span class="status-dot ${a.status}"></span> ${a.account_number}</div>
+                   <div style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;">${a.currency}</div>
+               </div>`).join("");
+    } catch (_) { /* ignore */ }
 }
 
 async function handleProfileUpdate(e) {

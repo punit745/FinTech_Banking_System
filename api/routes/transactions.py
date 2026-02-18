@@ -5,7 +5,7 @@ Endpoints for deposits, withdrawals, transfers, and transaction history.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from auth import get_current_user
+from auth import get_current_user, authenticate_user
 from database import get_connection
 from schemas import (
     DepositRequest, WithdrawRequest, TransferRequest,
@@ -35,6 +35,9 @@ def deposit(data: DepositRequest, current_user: dict = Depends(get_current_user)
     """Deposit funds into an account."""
     conn = get_connection()
     try:
+        # Verify Password
+        authenticate_user(current_user["username"], data.password)
+
         cursor = conn.cursor(dictionary=True)
         _verify_account_ownership(cursor, data.account_id, current_user["user_id"])
 
@@ -66,6 +69,9 @@ def withdraw(data: WithdrawRequest, current_user: dict = Depends(get_current_use
     """Withdraw funds from an account."""
     conn = get_connection()
     try:
+        # Verify Password
+        authenticate_user(current_user["username"], data.password)
+
         cursor = conn.cursor(dictionary=True)
         account = _verify_account_ownership(cursor, data.account_id, current_user["user_id"])
 
@@ -134,6 +140,9 @@ def transfer(data: TransferRequest, current_user: dict = Depends(get_current_use
     """Transfer funds between accounts."""
     conn = get_connection()
     try:
+        # Verify Password
+        authenticate_user(current_user["username"], data.password)
+
         cursor = conn.cursor(dictionary=True)
         _verify_account_ownership(cursor, data.sender_account_id, current_user["user_id"])
 

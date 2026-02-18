@@ -5,9 +5,9 @@ Endpoints for creating, managing, closing, and freezing bank accounts.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from auth import get_current_user
+from auth import get_current_user, authenticate_user
 from database import get_connection
-from schemas import AccountCreate, AccountResponse, BalanceResponse, MessageResponse
+from schemas import AccountCreate, AccountResponse, BalanceResponse, MessageResponse, BalanceCheckRequest
 from typing import List
 
 router = APIRouter(prefix="/accounts", tags=["Accounts"])
@@ -33,8 +33,9 @@ def list_accounts(current_user: dict = Depends(get_current_user)):
         cursor.close()
 
         # Convert Decimal and datetime to serializable types
+        # Convert Decimal and datetime to serializable types
         for acct in accounts:
-            acct["current_balance"] = float(acct["current_balance"])
+            acct["current_balance"] = 0.0  # Balance is hidden by default; use secure endpoint
             if acct.get("created_at"):
                 acct["created_at"] = str(acct["created_at"])
 
@@ -94,16 +95,19 @@ def get_account_detail(account_id: int, current_user: dict = Depends(get_current
             conn.close()
 
 
-@router.get("/{account_id}/balance", response_model=BalanceResponse)
-def get_balance(account_id: int, current_user: dict = Depends(get_current_user)):
-    """Get balance for a specific account (must belong to the user)."""
+@router.post("/balance", response_model=BalanceResponse)
+def get_balance_secure(data: BalanceCheckRequest, current_user: dict = Depends(get_current_user)):
+    """Get balance for a specific account (must belong to the user) with password verification."""
     conn = get_connection()
     try:
+        # Verify Password
+        authenticate_user(current_user["username"], data.password)
+
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
             """SELECT account_number, account_type, currency, current_balance, status
                FROM accounts WHERE account_id = %s AND user_id = %s""",
-            (account_id, current_user["user_id"]),
+            (data.account_id, current_user["user_id"]),
         )
         account = cursor.fetchone()
         cursor.close()

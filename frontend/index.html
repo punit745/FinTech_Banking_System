@@ -51,10 +51,13 @@
                     <h1>FinTech Banking</h1>
                     <p>Secure. Intelligent. Modern.</p>
                 </div>
-                <div class="auth-tabs auth-tabs-3">
-                    <button type="button" class="auth-tab active" onclick="switchAuthTab('login')">👤 Customer</button>
-                    <button type="button" class="auth-tab" onclick="switchAuthTab('employee')">🏢 Employee</button>
-                    <button type="button" class="auth-tab" onclick="switchAuthTab('register')">📝 Register</button>
+                <div class="auth-tabs">
+                    <select id="authTypeSelect" class="form-control" onchange="switchAuthType(this.value)"
+                        style="margin-bottom:20px;padding:12px;font-size:1rem;">
+                        <option value="login">👤 Customer Login</option>
+                        <option value="employee">🏢 Employee Login</option>
+                        <option value="register">📝 New User Registration</option>
+                    </select>
                 </div>
                 <!-- Customer Login -->
                 <form id="loginForm" class="auth-form active" onsubmit="handleLogin(event)">
@@ -230,10 +233,10 @@
                     </div>
                 </div>
                 <div class="kpi-grid" id="dashboardKPIs">
-                    <div class="kpi-card indigo">
+                    <div class="kpi-card indigo" onclick="checkBalanceFlow()">
                         <div class="kpi-icon">💰</div>
-                        <div class="kpi-value" id="kpiTotalBalance">₹0.00</div>
-                        <div class="kpi-label">Total Balance</div>
+                        <div class="kpi-value" id="kpiTotalBalance">****</div>
+                        <div class="kpi-label">Tap to View Balance</div>
                     </div>
                     <div class="kpi-card cyan">
                         <div class="kpi-icon">🏧</div>
@@ -336,6 +339,10 @@
                                 <input type="text" id="ownTransferDesc" class="form-control"
                                     placeholder="e.g. Savings to Checking">
                             </div>
+                            <div class="form-group"><label>Password</label>
+                                <input type="password" id="ownTransferPwd" class="form-control" placeholder="Required"
+                                    required>
+                            </div>
                             <button type="submit" class="btn btn-primary" style="width:100%;"><span
                                     class="btn-spinner"></span><span class="btn-text">Transfer</span></button>
                         </form>
@@ -360,6 +367,10 @@
                             <div class="form-group"><label>Description</label>
                                 <input type="text" id="extTransferDesc" class="form-control"
                                     placeholder="e.g. Rent Payment">
+                            </div>
+                            <div class="form-group"><label>Password</label>
+                                <input type="password" id="extTransferPwd" class="form-control" placeholder="Required"
+                                    required>
                             </div>
                             <button type="submit" class="btn btn-primary" style="width:100%;"><span
                                     class="btn-spinner"></span><span class="btn-text">Send Money</span></button>
@@ -416,6 +427,10 @@
                                 <input type="text" id="depositDesc" class="form-control"
                                     placeholder="e.g. Salary Deposit">
                             </div>
+                            <div class="form-group"><label>Password</label>
+                                <input type="password" id="depositPwd" class="form-control" placeholder="Required"
+                                    required>
+                            </div>
                             <button type="submit" class="btn btn-success" style="width:100%;"><span
                                     class="btn-spinner"></span><span class="btn-text">Deposit Funds</span></button>
                         </form>
@@ -436,6 +451,10 @@
                             <div class="form-group"><label>Description</label>
                                 <input type="text" id="withdrawDesc" class="form-control"
                                     placeholder="e.g. ATM Withdrawal">
+                            </div>
+                            <div class="form-group"><label>Password</label>
+                                <input type="password" id="withdrawPwd" class="form-control" placeholder="Required"
+                                    required>
                             </div>
                             <button type="submit" class="btn btn-danger" style="width:100%;"><span
                                     class="btn-spinner"></span><span class="btn-text">Withdraw Funds</span></button>
@@ -605,6 +624,12 @@
                                     id="profileStatus">—</span></div>
                             <div><strong style="color:var(--text-muted);">Member Since:</strong> <span
                                     id="profileCreated">—</span></div>
+                        </div>
+
+                        <!-- My Accounts Section in Profile -->
+                        <div class="card" style="margin-top:20px;">
+                            <h3 style="margin-bottom:16px;">My Accounts</h3>
+                            <div id="profileAccountsList" class="kpi-grid"></div>
                         </div>
                     </div>
                 </div>

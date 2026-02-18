@@ -11,3 +11,4 @@ ai_worker/*.pkl
 # OS
 .DS_Store
 Thumbs.db
+api_venv/
