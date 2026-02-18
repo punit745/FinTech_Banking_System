@@ -217,7 +217,8 @@ def get_transaction_history(
             txn["amount"] = float(txn["amount"])
             txn["balance_after"] = float(txn["balance_after"])
             if txn.get("transaction_date"):
-                txn["transaction_date"] = str(txn["transaction_date"])
+                val = txn["transaction_date"]
+                txn["transaction_date"] = val.isoformat() if hasattr(val, "isoformat") else str(val).replace(" ", "T")
 
         return transactions
     finally:

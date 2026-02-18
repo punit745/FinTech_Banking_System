@@ -37,7 +37,8 @@ def list_accounts(current_user: dict = Depends(get_current_user)):
         for acct in accounts:
             acct["current_balance"] = 0.0  # Balance is hidden by default; use secure endpoint
             if acct.get("created_at"):
-                acct["created_at"] = str(acct["created_at"])
+                val = acct["created_at"]
+                acct["created_at"] = val.isoformat() if hasattr(val, "isoformat") else str(val).replace(" ", "T")
 
         return accounts
     finally:
@@ -65,7 +66,8 @@ def get_account_detail(account_id: int, current_user: dict = Depends(get_current
 
         account["current_balance"] = float(account["current_balance"])
         if account.get("created_at"):
-            account["created_at"] = str(account["created_at"])
+            val = account["created_at"]
+            account["created_at"] = val.isoformat() if hasattr(val, "isoformat") else str(val).replace(" ", "T")
 
         # Fetch recent 10 transactions for mini-statement
         cursor.execute(
@@ -86,7 +88,8 @@ def get_account_detail(account_id: int, current_user: dict = Depends(get_current
             entry["amount"] = float(entry["amount"])
             entry["balance_after"] = float(entry["balance_after"])
             if entry.get("transaction_date"):
-                entry["transaction_date"] = str(entry["transaction_date"])
+                val = entry["transaction_date"]
+                entry["transaction_date"] = val.isoformat() if hasattr(val, "isoformat") else str(val).replace(" ", "T")
 
         account["recent_transactions"] = entries
         return account
@@ -157,7 +160,8 @@ def get_statement(account_id: int, current_user: dict = Depends(get_current_user
             entry["amount"] = float(entry["amount"])
             entry["balance_after"] = float(entry["balance_after"])
             if entry.get("transaction_date"):
-                entry["transaction_date"] = str(entry["transaction_date"])
+                val = entry["transaction_date"]
+                entry["transaction_date"] = val.isoformat() if hasattr(val, "isoformat") else str(val).replace(" ", "T")
 
         return entries
     finally:
